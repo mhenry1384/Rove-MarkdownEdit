@@ -9,6 +9,7 @@
   --accent: #0969da;
   --link: #0969da;
   --code: #953800;
+  --code-bg: #eff1f3;
   --sel: #b6d7ff;
   --active-line: #f6f8fa;
   --error: #cf222e;
@@ -33,6 +34,7 @@
     --accent: #4493f8;
     --link: #4493f8;
     --code: #ffa657;
+    --code-bg: #2d333b;
     --sel: #264f78;
     --active-line: #161b22;
     --error: #f85149;
@@ -129,16 +131,34 @@ button {
   display: none !important;
 }
 
+#panel-files {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#files {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+#files-empty {
+  flex: 1;
+}
+
 .panel-toolbar {
+  flex: none;
   display: flex;
   gap: 6px;
-  padding: 8px;
-  border-bottom: 1px solid var(--border);
+  padding: 6px 8px;
+  border-top: 1px solid var(--border);
 }
 
 .panel-toolbar button {
-  flex: 1;
-  padding: 4px 8px;
+  padding: 2px 10px;
+  font-size: 12px;
+  color: var(--muted);
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg);

@@ -7,7 +7,7 @@ import { open as openDialog, save as saveDialog, ask } from "@tauri-apps/plugin-
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 import { EditorView, basicSetup } from "codemirror";
-import { EditorState, RangeSetBuilder } from "@codemirror/state";
+import { EditorState, RangeSetBuilder, StateField } from "@codemirror/state";
 import { Decoration, ViewPlugin, WidgetType } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
@@ -79,6 +79,21 @@ const editorTheme = EditorView.theme({
   ".cm-clickable-link": { cursor: "pointer" },
   ".cm-bullet": { color: "var(--fg)", display: "inline-block", width: "0.7em", textAlign: "center" },
   ".cm-line.cm-list-gap": { lineHeight: "6px", fontSize: "6px" },
+  ".cm-header-mark": { opacity: "0.5" },
+  ".cm-header-mark, .cm-header-mark *": { color: "var(--fg) !important" },
+  ".cm-table-wrap": { padding: "4px 24px 4px 12px", overflowX: "auto", cursor: "text" },
+  ".cm-table": { borderCollapse: "collapse", lineHeight: "1.5" },
+  ".cm-table th, .cm-table td": { border: "1px solid var(--border)", padding: "4px 12px", verticalAlign: "top" },
+  ".cm-table th": { backgroundColor: "var(--sidebar-bg)", fontWeight: "600", textAlign: "left" },
+  ".cm-inline-code": { backgroundColor: "var(--code-bg)", borderRadius: "3px", padding: "1px 0" },
+  ".cm-table code": {
+    fontFamily: "var(--mono)",
+    color: "var(--code)",
+    backgroundColor: "var(--code-bg)",
+    borderRadius: "3px",
+    padding: "1px 3px",
+  },
+  ".cm-table-link": { color: "var(--link)" },
 });
 
 // ---------- List display (display only; the text is unchanged) ----------
@@ -174,6 +189,246 @@ const listDisplay = ViewPlugin.fromClass(
   { decorations: (v) => v.decorations },
 );
 
+// ---------- Heading marks ----------
+// The # markers of ATX headings are shown faded.
+
+const headerMarkDeco = Decoration.mark({ class: "cm-header-mark" });
+
+function buildHeaderMarkDecorations(view) {
+  const builder = new RangeSetBuilder();
+  let last = -1;
+  for (const { from, to } of view.visibleRanges) {
+    syntaxTree(view.state).iterate({
+      from,
+      to,
+      enter(node) {
+        if (node.name === "HeaderMark" && node.from >= last && /^ATXHeading/.test(node.node.parent?.name)) {
+          builder.add(node.from, node.to, headerMarkDeco);
+          last = node.to;
+        }
+      },
+    });
+  }
+  return builder.finish();
+}
+
+const headerMarks = ViewPlugin.fromClass(
+  class {
+    constructor(view) {
+      this.decorations = buildHeaderMarkDecorations(view);
+    }
+    update(update) {
+      if (
+        update.docChanged ||
+        update.viewportChanged ||
+        syntaxTree(update.state) !== syntaxTree(update.startState)
+      ) {
+        this.decorations = buildHeaderMarkDecorations(update.view);
+      }
+    }
+  },
+  { decorations: (v) => v.decorations },
+);
+
+// ---------- Inline code ----------
+// `code` spans get a shaded background. Their backticks are hidden unless the
+// cursor is inside the span.
+
+const inlineCodeDeco = Decoration.mark({ class: "cm-inline-code" });
+const hiddenMark = Decoration.replace({});
+
+function buildInlineCodeDecorations(view) {
+  const { state } = view;
+  const head = state.selection.main.head;
+  const builder = new RangeSetBuilder();
+  let last = -1;
+  for (const { from, to } of view.visibleRanges) {
+    syntaxTree(state).iterate({
+      from,
+      to,
+      enter(node) {
+        if (node.name !== "InlineCode") return;
+        if (node.from < last) return false;
+        last = node.to;
+        const marks = node.node.getChildren("CodeMark");
+        const editing = head > node.from && head < node.to;
+        if (editing || marks.length < 2 || marks[0].to >= marks[1].from) {
+          builder.add(node.from, node.to, inlineCodeDeco);
+        } else {
+          builder.add(marks[0].from, marks[0].to, hiddenMark);
+          builder.add(marks[0].to, marks[1].from, inlineCodeDeco);
+          builder.add(marks[1].from, marks[1].to, hiddenMark);
+        }
+        return false;
+      },
+    });
+  }
+  return builder.finish();
+}
+
+const inlineCode = ViewPlugin.fromClass(
+  class {
+    constructor(view) {
+      this.decorations = buildInlineCodeDecorations(view);
+    }
+    update(update) {
+      if (
+        update.docChanged ||
+        update.viewportChanged ||
+        update.selectionSet ||
+        syntaxTree(update.state) !== syntaxTree(update.startState)
+      ) {
+        this.decorations = buildInlineCodeDecorations(update.view);
+      }
+    }
+  },
+  { decorations: (v) => v.decorations },
+);
+
+// ---------- Tables (display only; the text is unchanged) ----------
+// A GFM table is drawn as a real table unless the selection touches it, in
+// which case its markdown source is shown for editing. Clicking a cell moves
+// the cursor to that cell's text.
+
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/** Minimal inline markdown -> HTML for table cells. */
+function renderInline(text) {
+  return text
+    .split(/(`[^`]+`)/)
+    .map((part, i) => {
+      if (i % 2) return `<code>${escapeHtml(part.slice(1, -1))}</code>`;
+      return escapeHtml(part.replace(/\\\|/g, "|"))
+        .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '<span class="cm-table-link">$1</span>')
+        .replace(/(\*\*|__)(?=\S)(.+?)(?<=\S)\1/g, "<strong>$2</strong>")
+        .replace(/(\*|_)(?=\S)(.+?)(?<=\S)\1/g, "<em>$2</em>")
+        .replace(/~~(?=\S)(.+?)(?<=\S)~~/g, "<del>$1</del>");
+    })
+    .join("");
+}
+
+/** Cells of one table row: [{ text, offset }], offset relative to the line start. */
+function splitRow(line) {
+  const cells = [];
+  let start = 0;
+  let inCode = false;
+  const bounds = [];
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === "\\") i++;
+    else if (c === "`") inCode = !inCode;
+    else if (c === "|" && !inCode) bounds.push(i);
+  }
+  bounds.push(line.length);
+  for (const end of bounds) {
+    const raw = line.slice(start, end);
+    const lead = raw.length - raw.trimStart().length;
+    cells.push({ text: raw.trim(), offset: start + lead });
+    start = end + 1;
+  }
+  // Drop the empty cells outside leading / trailing pipes.
+  if (cells.length > 1 && cells[0].text === "" && /^\s*\|/.test(line)) cells.shift();
+  if (cells.length > 1 && cells[cells.length - 1].text === "" && /\|\s*$/.test(line)) cells.pop();
+  return cells;
+}
+
+class TableWidget extends WidgetType {
+  constructor(source) {
+    super();
+    this.source = source;
+  }
+  eq(other) {
+    return other.source === this.source;
+  }
+  toDOM(view) {
+    const lines = this.source.split("\n");
+    const lineStarts = [];
+    let pos = 0;
+    for (const line of lines) {
+      lineStarts.push(pos);
+      pos += line.length + 1;
+    }
+    const aligns = splitRow(lines[1] ?? "").map(({ text }) => {
+      const left = text.startsWith(":");
+      const right = text.endsWith(":");
+      return left && right ? "center" : right ? "right" : left ? "left" : "";
+    });
+
+    const wrap = document.createElement("div");
+    wrap.className = "cm-table-wrap";
+    const table = document.createElement("table");
+    table.className = "cm-table";
+    const addRow = (parent, lineIdx, tag) => {
+      const tr = document.createElement("tr");
+      const cells = splitRow(lines[lineIdx]);
+      for (let c = 0; c < Math.max(cells.length, aligns.length); c++) {
+        const cell = document.createElement(tag);
+        if (aligns[c]) cell.style.textAlign = aligns[c];
+        if (cells[c]) {
+          cell.innerHTML = renderInline(cells[c].text);
+          cell.dataset.offset = lineStarts[lineIdx] + cells[c].offset;
+        } else {
+          cell.dataset.offset = lineStarts[lineIdx] + lines[lineIdx].length;
+        }
+        tr.append(cell);
+      }
+      parent.append(tr);
+    };
+    const thead = document.createElement("thead");
+    addRow(thead, 0, "th");
+    const tbody = document.createElement("tbody");
+    for (let i = 2; i < lines.length; i++) addRow(tbody, i, "td");
+    table.append(thead, tbody);
+    wrap.append(table);
+
+    wrap.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      const start = view.posAtDOM(wrap);
+      const cell = e.target.closest("th, td");
+      const offset = cell ? Number(cell.dataset.offset) : 0;
+      view.dispatch({ selection: { anchor: start + offset } });
+      view.focus();
+      e.preventDefault();
+    });
+    return wrap;
+  }
+  ignoreEvent() {
+    return true;
+  }
+}
+
+function buildTableDecorations(state) {
+  const { from: selFrom, to: selTo } = state.selection.main;
+  const builder = new RangeSetBuilder();
+  syntaxTree(state).iterate({
+    enter(node) {
+      if (node.name !== "Table") return;
+      // Trim a trailing newline so the replaced range ends on the last row.
+      let to = node.to;
+      while (to > node.from && state.doc.sliceString(to - 1, to) === "\n") to--;
+      if (selFrom > to || selTo < node.from) {
+        const widget = new TableWidget(state.doc.sliceString(node.from, to));
+        builder.add(node.from, to, Decoration.replace({ widget, block: true }));
+      }
+      return false;
+    },
+  });
+  return builder.finish();
+}
+
+const tableDisplay = StateField.define({
+  create: (state) => buildTableDecorations(state),
+  update(decos, tr) {
+    if (tr.docChanged || tr.selection || syntaxTree(tr.state) !== syntaxTree(tr.startState)) {
+      return buildTableDecorations(tr.state);
+    }
+    return decos;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
 // ---------- Clickable links ----------
 // Web links (bare URLs, <autolinks> and [text](url)) show a hand cursor and
 // open in the browser when clicked.
@@ -257,6 +512,9 @@ function makeState(text) {
       markdown({ base: markdownLanguage, codeLanguages: languages }),
       syntaxHighlighting(mdHighlight),
       listDisplay,
+      headerMarks,
+      inlineCode,
+      tableDisplay,
       clickableLinks,
       editorTheme,
       EditorView.lineWrapping,
