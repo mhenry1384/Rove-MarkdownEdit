@@ -132,6 +132,22 @@ pub fn run() {
             write_file,
             take_initial_file,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Rove MarkdownEdit");
+        .build(tauri::generate_context!())
+        .expect("error while running Rove MarkdownEdit")
+        .run(|_app, _event| {
+            // macOS passes files opened from Finder as an Apple Event, not as
+            // arguments. Store it for startup and also send it to a running window.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = _event {
+                if let Some(path) = urls
+                    .iter()
+                    .filter_map(|u| u.to_file_path().ok())
+                    .find(|p| p.is_file())
+                    .map(|p| p.to_string_lossy().into_owned())
+                {
+                    *_app.state::<InitialFile>().0.lock().unwrap() = Some(path.clone());
+                    let _ = _app.emit("open-file", path);
+                }
+            }
+        });
 }
