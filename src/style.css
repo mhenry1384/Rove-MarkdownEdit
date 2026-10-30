@@ -1,0 +1,286 @@
+:root {
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --muted: #6e7781;
+  --sidebar-bg: #f6f8fa;
+  --border: #d0d7de;
+  --hover: #eaeef2;
+  --active: #ddf4ff;
+  --accent: #0969da;
+  --link: #0969da;
+  --code: #953800;
+  --sel: #b6d7ff;
+  --active-line: #f6f8fa;
+  --error: #cf222e;
+  --kw: #8250df;
+  --str: #0a3069;
+  --comment: #6e7781;
+  --num: #0550ae;
+  --ui: system-ui, "Segoe UI", sans-serif;
+  --mono: "Cascadia Code", Consolas, "Courier New", monospace;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117;
+    --fg: #e6edf3;
+    --muted: #8b949e;
+    --sidebar-bg: #161b22;
+    --border: #30363d;
+    --hover: #21262d;
+    --active: #1f3a5f;
+    --accent: #4493f8;
+    --link: #4493f8;
+    --code: #ffa657;
+    --sel: #264f78;
+    --active-line: #161b22;
+    --error: #f85149;
+    --kw: #d2a8ff;
+    --str: #a5d6ff;
+    --comment: #8b949e;
+    --num: #79c0ff;
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--ui);
+  font-size: 14px;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+#app {
+  display: flex;
+  height: 100vh;
+}
+
+/* ---------- Sidebar ---------- */
+
+#sidebar {
+  width: 260px;
+  min-width: 140px;
+  max-width: 60vw;
+  display: flex;
+  flex-direction: column;
+  background: var(--sidebar-bg);
+  overflow: hidden;
+}
+
+#splitter {
+  width: 4px;
+  cursor: col-resize;
+  background: var(--border);
+  flex: none;
+}
+
+#splitter:hover,
+#splitter.dragging {
+  background: var(--accent);
+}
+
+.tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.tab {
+  flex: 1;
+  padding: 8px 0;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.tab:hover {
+  color: var(--fg);
+}
+
+.tab.active {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.panel {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.panel-toolbar {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-toolbar button {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.panel-toolbar button:hover {
+  background: var(--hover);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+
+.list li {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.list li:hover {
+  background: var(--hover);
+}
+
+.list li.current {
+  background: var(--active);
+}
+
+.empty {
+  padding: 16px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* Outline */
+
+#outline li {
+  padding: 3px 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+#outline li.level-1 {
+  font-weight: 600;
+}
+
+#outline li.level-1,
+#outline li.level-2 {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+/* Files */
+
+#files li {
+  padding: 6px 6px 6px 12px;
+  gap: 6px;
+}
+
+#files .file-text {
+  flex: 1;
+  min-width: 0;
+}
+
+#files .file-name,
+#files .file-dir {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#files .file-dir {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+#files .file-remove {
+  visibility: hidden;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+#files li:hover .file-remove {
+  visibility: visible;
+}
+
+#files .file-remove:hover {
+  background: var(--border);
+  color: var(--fg);
+}
+
+/* ---------- Main / editor ---------- */
+
+#main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+#editor {
+  flex: 1;
+  min-height: 0;
+}
+
+#editor .cm-editor {
+  height: 100%;
+}
+
+#status {
+  flex: none;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  background: var(--sidebar-bg);
+}
+
+#status-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#status-state {
+  white-space: nowrap;
+}
+
+#status-state.error {
+  color: var(--error);
+}

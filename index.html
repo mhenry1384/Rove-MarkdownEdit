@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rove MarkdownEdit</title>
+  </head>
+  <body>
+    <div id="app">
+      <aside id="sidebar">
+        <div class="tabs" role="tablist">
+          <button class="tab active" role="tab" data-tab="outline">Outline</button>
+          <button class="tab" role="tab" data-tab="files">Files</button>
+        </div>
+
+        <section class="panel" id="panel-outline">
+          <ul id="outline" class="list"></ul>
+          <div class="empty" id="outline-empty">No headings</div>
+        </section>
+
+        <section class="panel hidden" id="panel-files">
+          <div class="panel-toolbar">
+            <button id="btn-new" title="New file (Ctrl+N)">New</button>
+            <button id="btn-open" title="Open file (Ctrl+O)">Open…</button>
+          </div>
+          <ul id="files" class="list"></ul>
+          <div class="empty" id="files-empty">No recent files</div>
+        </section>
+      </aside>
+
+      <div id="splitter" title="Drag to resize"></div>
+
+      <main id="main">
+        <div id="editor"></div>
+        <footer id="status">
+          <span id="status-path"></span>
+          <span id="status-state"></span>
+        </footer>
+      </main>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
