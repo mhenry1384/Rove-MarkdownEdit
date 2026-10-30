@@ -304,3 +304,51 @@ button {
 #status-state.error {
   color: var(--error);
 }
+
+/* ---------- Table menu ---------- */
+
+.table-menu {
+  position: fixed;
+  z-index: 100;
+  min-width: 200px;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  font-size: 13px;
+}
+
+.table-menu button {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  width: 100%;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.table-menu button:hover {
+  background: var(--hover);
+}
+
+.table-menu-key {
+  color: var(--muted);
+}
+
+.table-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}
+
+.table-menu button:disabled {
+  color: var(--muted);
+  opacity: 0.5;
+  cursor: default;
+  background: none;
+}

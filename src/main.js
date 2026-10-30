@@ -19,6 +19,8 @@ import {
 } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 
+import { tableEditing, showTableMenu, insertTable } from "./table-editing.js";
+
 const APP_NAME = "Rove MarkdownEdit";
 const AUTOSAVE_DELAY_MS = 1500;
 const MD_FILTERS = [
@@ -288,7 +290,8 @@ const inlineCode = ViewPlugin.fromClass(
 // ---------- Tables (display only; the text is unchanged) ----------
 // A GFM table is drawn as a real table unless the selection touches it, in
 // which case its markdown source is shown for editing. Clicking a cell moves
-// the cursor to that cell's text.
+// the cursor to that cell's text; right-clicking also opens the table menu
+// (see table-editing.js).
 
 function escapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -383,14 +386,20 @@ class TableWidget extends WidgetType {
     table.append(thead, tbody);
     wrap.append(table);
 
-    wrap.addEventListener("mousedown", (e) => {
-      if (e.button !== 0) return;
+    const moveToCell = (e) => {
       const start = view.posAtDOM(wrap);
       const cell = e.target.closest("th, td");
       const offset = cell ? Number(cell.dataset.offset) : 0;
       view.dispatch({ selection: { anchor: start + offset } });
       view.focus();
       e.preventDefault();
+    };
+    wrap.addEventListener("mousedown", (e) => {
+      if (e.button === 0) moveToCell(e);
+    });
+    wrap.addEventListener("contextmenu", (e) => {
+      moveToCell(e);
+      showTableMenu(view, e.clientX, e.clientY);
     });
     return wrap;
   }
@@ -515,6 +524,7 @@ function makeState(text) {
       headerMarks,
       inlineCode,
       tableDisplay,
+      tableEditing,
       clickableLinks,
       editorTheme,
       EditorView.lineWrapping,
@@ -867,6 +877,14 @@ async function init() {
   // A second launch (e.g. double-clicking a .md file) is forwarded here by the
   // single-instance plugin.
   await listen("open-file", (event) => enqueue(() => openFile(event.payload)));
+
+  // Custom items of the native menu (see build_menu in lib.rs).
+  await listen("menu", (event) => {
+    if (event.payload === "new") enqueue(newFile);
+    else if (event.payload === "open") enqueue(openWithDialog);
+    else if (event.payload === "save") enqueue(() => saveCurrent());
+    else if (event.payload === "insert-table") insertTable(view);
+  });
 
   recentFiles = await invoke("get_recent_files");
   renderFiles();

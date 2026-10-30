@@ -4,7 +4,10 @@ use std::{
     sync::Mutex,
 };
 
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{
+    menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu},
+    AppHandle, Emitter, Manager, State,
+};
 
 const MAX_RECENT: usize = 30;
 const RECENT_FILE: &str = "recent.json";
@@ -104,6 +107,100 @@ fn take_initial_file(state: State<InitialFile>) -> Option<String> {
     state.0.lock().unwrap().take()
 }
 
+// ---------- Menu ----------
+// Custom items are sent to the frontend as a "menu" event carrying the item id.
+
+/// A custom menu item with a keyboard shortcut. On macOS the shortcut is a real
+/// key equivalent (the webview gets the key first, so the frontend's own
+/// handler still wins). Elsewhere it is only shown in the label, because the
+/// frontend already handles the key and a menu accelerator would run it twice.
+fn shortcut_item(app: &AppHandle, id: &str, label: &str, accel: &str) -> tauri::Result<MenuItem<tauri::Wry>> {
+    if cfg!(target_os = "macos") {
+        MenuItem::with_id(app, id, label, true, Some(accel))
+    } else {
+        let shown = accel.replace("CmdOrCtrl", "Ctrl");
+        MenuItem::with_id(app, id, format!("{label}\t{shown}"), true, None::<&str>)
+    }
+}
+
+fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let info = app.package_info();
+    let about = PredefinedMenuItem::about(
+        app,
+        Some(&format!("About {}", info.name)),
+        Some(AboutMetadata {
+            name: Some(info.name.clone()),
+            version: Some(info.version.to_string()),
+            ..Default::default()
+        }),
+    )?;
+    let sep = || PredefinedMenuItem::separator(app);
+
+    let file = Submenu::with_items(
+        app,
+        "&File",
+        true,
+        &[
+            &shortcut_item(app, "new", "&New", "CmdOrCtrl+N")?,
+            &shortcut_item(app, "open", "&Open…", "CmdOrCtrl+O")?,
+            &shortcut_item(app, "save", "&Save", "CmdOrCtrl+S")?,
+            &sep()?,
+            // Closing the window (rather than quitting) lets the frontend save first.
+            &PredefinedMenuItem::close_window(app, Some(if cfg!(target_os = "macos") { "Close Window" } else { "E&xit" }))?,
+        ],
+    )?;
+
+    let edit = Submenu::with_items(
+        app,
+        "&Edit",
+        true,
+        &[
+            &PredefinedMenuItem::undo(app, None)?,
+            &PredefinedMenuItem::redo(app, None)?,
+            &sep()?,
+            &PredefinedMenuItem::cut(app, None)?,
+            &PredefinedMenuItem::copy(app, None)?,
+            &PredefinedMenuItem::paste(app, None)?,
+            &PredefinedMenuItem::select_all(app, None)?,
+            &sep()?,
+            &shortcut_item(app, "insert-table", "Insert &Table", "CmdOrCtrl+Shift+T")?,
+        ],
+    )?;
+
+    #[cfg(target_os = "macos")]
+    {
+        let app_menu = Submenu::with_items(
+            app,
+            &info.name,
+            true,
+            &[
+                &about,
+                &sep()?,
+                &PredefinedMenuItem::services(app, None)?,
+                &sep()?,
+                &PredefinedMenuItem::hide(app, None)?,
+                &PredefinedMenuItem::hide_others(app, None)?,
+                &PredefinedMenuItem::show_all(app, None)?,
+                &sep()?,
+                &PredefinedMenuItem::quit(app, None)?,
+            ],
+        )?;
+        let window = Submenu::with_items(
+            app,
+            "Window",
+            true,
+            &[&PredefinedMenuItem::minimize(app, None)?, &PredefinedMenuItem::maximize(app, None)?],
+        )?;
+        Menu::with_items(app, &[&app_menu, &file, &edit, &window])
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let help = Submenu::with_items(app, "&Help", true, &[&about])?;
+        Menu::with_items(app, &[&file, &edit, &help])
+    }
+}
+
 pub fn run() {
     let args: Vec<String> = std::env::args().collect();
     let cwd = std::env::current_dir().unwrap_or_default();
@@ -124,6 +221,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(InitialFile(Mutex::new(initial)))
+        .menu(build_menu)
+        .on_menu_event(|app, event| {
+            let _ = app.emit("menu", event.id().as_ref());
+        })
         .invoke_handler(tauri::generate_handler![
             get_recent_files,
             add_recent_file,
