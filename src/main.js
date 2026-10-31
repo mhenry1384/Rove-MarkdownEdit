@@ -17,6 +17,7 @@ import {
   HighlightStyle,
   syntaxHighlighting,
 } from "@codemirror/language";
+import { highlightSelectionMatches } from "@codemirror/search";
 import { tags } from "@lezer/highlight";
 
 import { tableEditing, showTableMenu, insertTable } from "./table-editing.js";
@@ -518,6 +519,9 @@ function makeState(text) {
     doc: text,
     extensions: [
       basicSetup,
+      // Don't highlight other occurrences of the selected text: basicSetup
+      // turns this on, and the configs combine by taking the smallest limit.
+      highlightSelectionMatches({ maxMatches: 0 }),
       markdown({ base: markdownLanguage, codeLanguages: languages }),
       syntaxHighlighting(mdHighlight),
       listDisplay,

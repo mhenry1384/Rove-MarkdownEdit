@@ -9,9 +9,11 @@
   --accent: #0969da;
   --link: #0969da;
   --code: #953800;
-  --code-bg: #eff1f3;
+  /* Backgrounds drawn on editor text must be translucent: CodeMirror draws the
+     selection underneath the text, so an opaque one would hide it. */
+  --code-bg: rgba(31, 35, 40, 0.07);
   --sel: #b6d7ff;
-  --active-line: #f6f8fa;
+  --active-line: rgba(31, 35, 40, 0.04);
   --error: #cf222e;
   --kw: #8250df;
   --str: #0a3069;
@@ -34,9 +36,9 @@
     --accent: #4493f8;
     --link: #4493f8;
     --code: #ffa657;
-    --code-bg: #2d333b;
+    --code-bg: rgba(230, 237, 243, 0.15);
     --sel: #264f78;
-    --active-line: #161b22;
+    --active-line: rgba(230, 237, 243, 0.04);
     --error: #f85149;
     --kw: #d2a8ff;
     --str: #a5d6ff;
