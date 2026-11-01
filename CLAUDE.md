@@ -2,7 +2,7 @@
 
 ## Version number
 
-- On Windows, increment the patch version before every release build. Update it in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` (the build updates `Cargo.lock`).
+- On Windows, increment the patch version before a release build if there are uncommitted changes (see `AGENTS.md`). Update it in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` (the build updates `Cargo.lock`).
 - On Mac, never change the version for a release build.
 
 ## Rebuilding the release exe (Windows)

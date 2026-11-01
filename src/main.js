@@ -77,6 +77,9 @@ const editorTheme = EditorView.theme({
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {
     backgroundColor: "var(--sel) !important",
   },
+  // The find/replace fields are dark text on white, where the dark theme's
+  // selection color would hide the text.
+  ".cm-panel .cm-textfield::selection": { backgroundColor: "#c8ccd1 !important" },
   ".cm-activeLine": { backgroundColor: "var(--active-line)" },
   ".cm-gutters": { display: "none" },
   ".cm-clickable-link": { cursor: "pointer" },
