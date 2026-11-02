@@ -2,7 +2,7 @@
 
 ## Version number
 
-- On Windows, every time you do a release build and there are uncommitted changes (check `git status`), increment the patch version first. Update it in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` (the build updates `Cargo.lock`).
+- On Windows, every time you do a release build and there are uncommitted changes (check `git status`), increment the patch version first. Update it in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` (the build updates `Cargo.lock`). Also update both `"version"` fields at the top of `package-lock.json` (the root and the `packages[""]` entry).
 - If the working tree is clean, build without changing the version.
 - On Mac, never change the version for a release build.
 
