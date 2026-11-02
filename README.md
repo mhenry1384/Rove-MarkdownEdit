@@ -9,11 +9,14 @@ A Markdown editor built with Tauri 2, Vite and CodeMirror 6.
 
 ## Shortcuts
 
-| Keys   | Action        |
-| ------ | ------------- |
-| Ctrl+S | Save          |
-| Ctrl+O | Open…         |
-| Ctrl+N | New file      |
+| Keys            | Action                                                  |
+| --------------- | ------------------------------------------------------- |
+| Ctrl+S          | Save                                                    |
+| Ctrl+O          | Open…                                                   |
+| Ctrl+N          | New file                                                |
+| Ctrl+B          | Bold / unbold the selection or word                     |
+| Ctrl+I          | Italicize / unitalicize the selection or word           |
+| Ctrl+1 … Ctrl+5 | Make the line a heading of that level (again to remove) |
 
 ## Development
 

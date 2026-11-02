@@ -21,6 +21,7 @@ import { highlightSelectionMatches } from "@codemirror/search";
 import { tags } from "@lezer/highlight";
 
 import { tableEditing, showTableMenu, insertTable } from "./table-editing.js";
+import { formatting, formatCommands } from "./formatting.js";
 
 const APP_NAME = "Rove MarkdownEdit";
 const AUTOSAVE_DELAY_MS = 1500;
@@ -532,6 +533,7 @@ function makeState(text) {
       inlineCode,
       tableDisplay,
       tableEditing,
+      formatting,
       clickableLinks,
       editorTheme,
       EditorView.lineWrapping,
@@ -891,6 +893,10 @@ async function init() {
     else if (event.payload === "open") enqueue(openWithDialog);
     else if (event.payload === "save") enqueue(() => saveCurrent());
     else if (event.payload === "insert-table") insertTable(view);
+    else if (formatCommands[event.payload]) {
+      formatCommands[event.payload](view);
+      view.focus();
+    }
   });
 
   recentFiles = await invoke("get_recent_files");

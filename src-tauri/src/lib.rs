@@ -167,6 +167,22 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         ],
     )?;
 
+    let format = Submenu::with_items(
+        app,
+        "F&ormat",
+        true,
+        &[
+            &shortcut_item(app, "bold", "&Bold", "CmdOrCtrl+B")?,
+            &shortcut_item(app, "italic", "&Italic", "CmdOrCtrl+I")?,
+            &sep()?,
+            &shortcut_item(app, "heading-1", "Heading &1", "CmdOrCtrl+1")?,
+            &shortcut_item(app, "heading-2", "Heading &2", "CmdOrCtrl+2")?,
+            &shortcut_item(app, "heading-3", "Heading &3", "CmdOrCtrl+3")?,
+            &shortcut_item(app, "heading-4", "Heading &4", "CmdOrCtrl+4")?,
+            &shortcut_item(app, "heading-5", "Heading &5", "CmdOrCtrl+5")?,
+        ],
+    )?;
+
     #[cfg(target_os = "macos")]
     {
         let app_menu = Submenu::with_items(
@@ -191,13 +207,13 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             true,
             &[&PredefinedMenuItem::minimize(app, None)?, &PredefinedMenuItem::maximize(app, None)?],
         )?;
-        Menu::with_items(app, &[&app_menu, &file, &edit, &window])
+        Menu::with_items(app, &[&app_menu, &file, &edit, &format, &window])
     }
 
     #[cfg(not(target_os = "macos"))]
     {
         let help = Submenu::with_items(app, "&Help", true, &[&about])?;
-        Menu::with_items(app, &[&file, &edit, &help])
+        Menu::with_items(app, &[&file, &edit, &format, &help])
     }
 }
 
