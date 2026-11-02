@@ -3,12 +3,14 @@ import "./style.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open as openDialog, save as saveDialog, ask } from "@tauri-apps/plugin-dialog";
+import { getVersion } from "@tauri-apps/api/app";
+import { open as openDialog, save as saveDialog, ask, message } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 import { EditorView, basicSetup } from "codemirror";
 import { EditorState, RangeSetBuilder, StateField } from "@codemirror/state";
 import { Decoration, ViewPlugin, WidgetType } from "@codemirror/view";
+import { isolateHistory } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
 import {
@@ -86,13 +88,35 @@ const editorTheme = EditorView.theme({
   ".cm-clickable-link": { cursor: "pointer" },
   ".cm-bullet": { color: "var(--fg)", display: "inline-block", width: "0.7em", textAlign: "center" },
   ".cm-line.cm-list-gap": { lineHeight: "6px", fontSize: "6px" },
-  ".cm-header-mark": { opacity: "0.5" },
+  ".cm-header-mark": { opacity: "0.25" },
   ".cm-header-mark, .cm-header-mark *": { color: "var(--fg) !important" },
   ".cm-table-wrap": { padding: "4px 24px 4px 12px", overflowX: "auto", cursor: "text" },
   ".cm-table": { borderCollapse: "collapse", lineHeight: "1.5" },
   ".cm-table th, .cm-table td": { border: "1px solid var(--border)", padding: "4px 12px", verticalAlign: "top" },
   ".cm-table th": { backgroundColor: "var(--sidebar-bg)", fontWeight: "600", textAlign: "left" },
   ".cm-inline-code": { backgroundColor: "var(--code-bg)", borderRadius: "3px", padding: "1px 0" },
+  ".cm-underline": { textDecoration: "underline" },
+  // Horizontal margins only: CodeMirror measures line heights, and vertical
+  // margins would throw them off.
+  ".cm-line.cm-codeblock": {
+    backgroundColor: "var(--code-bg)",
+    fontFamily: "var(--mono)",
+    margin: "0 24px 0 12px",
+    padding: "0 12px",
+    borderLeft: "1px solid var(--border)",
+    borderRight: "1px solid var(--border)",
+  },
+  ".cm-line.cm-codeblock-first": {
+    borderTop: "1px solid var(--border)",
+    borderTopLeftRadius: "4px",
+    borderTopRightRadius: "4px",
+  },
+  ".cm-line.cm-codeblock-last": {
+    borderBottom: "1px solid var(--border)",
+    borderBottomLeftRadius: "4px",
+    borderBottomRightRadius: "4px",
+  },
+  ".cm-line.cm-codeblock-fence": { lineHeight: "6px", fontSize: "6px" },
   ".cm-table code": {
     fontFamily: "var(--mono)",
     color: "var(--code)",
@@ -237,46 +261,106 @@ const headerMarks = ViewPlugin.fromClass(
   { decorations: (v) => v.decorations },
 );
 
-// ---------- Inline code ----------
-// `code` spans get a shaded background. Their backticks are hidden unless the
-// cursor is inside the span.
+// ---------- Inline marks ----------
+// `code`, **bold**, *italic*, ~~strikethrough~~ and <u>underline</u> hide their
+// markers unless the selection is inside the span. `code` spans get a shaded
+// background and <u> spans are underlined. Entities such as &rarr; are always
+// drawn as the character they stand for, and are deleted as a unit.
 
 const inlineCodeDeco = Decoration.mark({ class: "cm-inline-code" });
+const underlineDeco = Decoration.mark({ class: "cm-underline" });
 const hiddenMark = Decoration.replace({});
 
-function buildInlineCodeDecorations(view) {
-  const { state } = view;
-  const head = state.selection.main.head;
-  const builder = new RangeSetBuilder();
-  let last = -1;
-  for (const { from, to } of view.visibleRanges) {
-    syntaxTree(state).iterate({
-      from,
-      to,
-      enter(node) {
-        if (node.name !== "InlineCode") return;
-        if (node.from < last) return false;
-        last = node.to;
-        const marks = node.node.getChildren("CodeMark");
-        const editing = head > node.from && head < node.to;
-        if (editing || marks.length < 2 || marks[0].to >= marks[1].from) {
-          builder.add(node.from, node.to, inlineCodeDeco);
-        } else {
-          builder.add(marks[0].from, marks[0].to, hiddenMark);
-          builder.add(marks[0].to, marks[1].from, inlineCodeDeco);
-          builder.add(marks[1].from, marks[1].to, hiddenMark);
-        }
-        return false;
-      },
-    });
-  }
-  return builder.finish();
+/** Node name -> name of its marker children. */
+const MARKED_SPANS = {
+  InlineCode: "CodeMark",
+  StrongEmphasis: "EmphasisMark",
+  Emphasis: "EmphasisMark",
+  Strikethrough: "StrikethroughMark",
+};
+
+const entityDecoder = document.createElement("textarea");
+/** The text an HTML entity such as "&rarr;" stands for (unchanged if unknown). */
+function decodeEntity(entity) {
+  entityDecoder.innerHTML = entity;
+  return entityDecoder.value;
 }
 
-const inlineCode = ViewPlugin.fromClass(
+class EntityWidget extends WidgetType {
+  constructor(text) {
+    super();
+    this.text = text;
+  }
+  eq(other) {
+    return other.text === this.text;
+  }
+  toDOM() {
+    const span = document.createElement("span");
+    span.textContent = this.text;
+    return span;
+  }
+}
+
+/** Whether a selection range overlaps from..to (a cursor must be strictly inside). */
+function selectionTouches(state, from, to) {
+  return state.selection.ranges.some((r) => r.from < to && r.to > from);
+}
+
+function buildInlineMarkDecorations(view) {
+  const { state } = view;
+  const tree = syntaxTree(state);
+  const decos = [];
+  const entities = [];
+
+  const addSpan = (open, close, contentDeco) => {
+    if (selectionTouches(state, open.from, close.to) || open.to >= close.from) {
+      if (contentDeco) decos.push(contentDeco.range(open.from, close.to));
+      return;
+    }
+    decos.push(hiddenMark.range(open.from, open.to));
+    if (contentDeco) decos.push(contentDeco.range(open.to, close.from));
+    decos.push(hiddenMark.range(close.from, close.to));
+  };
+
+  tree.iterate({
+    from: view.viewport.from,
+    to: view.viewport.to,
+    enter(node) {
+      const markName = MARKED_SPANS[node.name];
+      if (markName) {
+        const marks = node.node.getChildren(markName);
+        const contentDeco = node.name === "InlineCode" ? inlineCodeDeco : null;
+        if (marks.length >= 2) addSpan(marks[0], marks[marks.length - 1], contentDeco);
+        else if (contentDeco) decos.push(contentDeco.range(node.from, node.to));
+        return node.name !== "InlineCode";
+      }
+      if (node.name === "HTMLTag" && state.sliceDoc(node.from, node.to).toLowerCase() === "<u>") {
+        // The matching </u> must be a tag in the same block (not inside code).
+        const end = node.node.parent?.to ?? node.to;
+        const i = state.sliceDoc(node.to, end).toLowerCase().indexOf("</u>");
+        if (i < 0) return;
+        const close = { from: node.to + i, to: node.to + i + 4 };
+        if (tree.resolve(close.from, 1).name !== "HTMLTag") return;
+        addSpan(node, close, underlineDeco);
+      } else if (node.name === "Entity") {
+        const source = state.sliceDoc(node.from, node.to);
+        const text = decodeEntity(source);
+        if (text !== source) {
+          entities.push(Decoration.replace({ widget: new EntityWidget(text) }).range(node.from, node.to));
+        }
+      }
+    },
+  });
+  return {
+    decorations: Decoration.set([...decos, ...entities], true),
+    entities: Decoration.set(entities, true),
+  };
+}
+
+const inlineMarksPlugin = ViewPlugin.fromClass(
   class {
     constructor(view) {
-      this.decorations = buildInlineCodeDecorations(view);
+      Object.assign(this, buildInlineMarkDecorations(view));
     }
     update(update) {
       if (
@@ -285,7 +369,96 @@ const inlineCode = ViewPlugin.fromClass(
         update.selectionSet ||
         syntaxTree(update.state) !== syntaxTree(update.startState)
       ) {
-        this.decorations = buildInlineCodeDecorations(update.view);
+        Object.assign(this, buildInlineMarkDecorations(update.view));
+      }
+    }
+  },
+  { decorations: (v) => v.decorations },
+);
+
+const inlineMarks = [
+  inlineMarksPlugin,
+  EditorView.atomicRanges.of((view) => view.plugin(inlineMarksPlugin)?.entities ?? Decoration.none),
+];
+
+// ---------- Arrows ----------
+// Typing -> or <- replaces it with &rarr; or &larr; (outside code). Undo
+// restores the typed characters.
+
+const ARROWS = { ">": ["-", "&rarr;"], "-": ["<", "&larr;"] };
+const NO_ARROW_NODES = new Set(["InlineCode", "FencedCode", "CodeBlock", "HTMLBlock", "CommentBlock", "Comment"]);
+
+const typeArrows = EditorView.inputHandler.of((view, from, to, text) => {
+  const arrow = ARROWS[text];
+  if (!arrow || from !== to) return false;
+  const { state } = view;
+  const [prev, entity] = arrow;
+  // Leave "-->" and "<!--" alone.
+  if (state.sliceDoc(from - 1, from) !== prev || /[-<!]/.test(state.sliceDoc(from - 2, from - 1))) return false;
+  for (let node = syntaxTree(state).resolveInner(from, -1); node; node = node.parent) {
+    if (NO_ARROW_NODES.has(node.name)) return false;
+  }
+  view.dispatch({ changes: { from, insert: text }, selection: { anchor: from + 1 }, userEvent: "input.type" });
+  view.dispatch({
+    changes: { from: from - 1, to: from + 1, insert: entity },
+    selection: { anchor: from - 1 + entity.length },
+    annotations: isolateHistory.of("before"),
+    userEvent: "input.autocorrect",
+  });
+  return true;
+});
+
+// ---------- Code blocks ----------
+// Fenced and indented code blocks are drawn as a shaded, bordered box. The
+// fence lines (```) of a fenced block shrink to a small gap unless the
+// selection touches the block.
+
+function buildCodeBlockDecorations(view) {
+  const { state } = view;
+  const decos = [];
+  syntaxTree(state).iterate({
+    from: view.viewport.from,
+    to: view.viewport.to,
+    enter(node) {
+      if (node.name !== "FencedCode" && node.name !== "CodeBlock") return;
+      const first = state.doc.lineAt(node.from).number;
+      const last = state.doc.lineAt(node.to).number;
+      const fences = new Map(); // line number -> start of its fence
+      const editing = state.selection.ranges.some((r) => r.from <= node.to && r.to >= node.from);
+      if (node.name === "FencedCode" && !editing) {
+        const marks = node.node.getChildren("CodeMark");
+        for (const mark of marks.length > 1 ? [marks[0], marks[marks.length - 1]] : marks) {
+          fences.set(state.doc.lineAt(mark.from).number, mark.from);
+        }
+      }
+      for (let n = first; n <= last; n++) {
+        const line = state.doc.line(n);
+        let cls = "cm-codeblock";
+        if (n === first) cls += " cm-codeblock-first";
+        if (n === last) cls += " cm-codeblock-last";
+        if (fences.has(n)) cls += " cm-codeblock-fence";
+        decos.push(Decoration.line({ class: cls }).range(line.from));
+        if (fences.has(n) && fences.get(n) < line.to) decos.push(hiddenMark.range(fences.get(n), line.to));
+      }
+      return false;
+    },
+  });
+  return Decoration.set(decos, true);
+}
+
+const codeBlocks = ViewPlugin.fromClass(
+  class {
+    constructor(view) {
+      this.decorations = buildCodeBlockDecorations(view);
+    }
+    update(update) {
+      if (
+        update.docChanged ||
+        update.viewportChanged ||
+        update.selectionSet ||
+        syntaxTree(update.state) !== syntaxTree(update.startState)
+      ) {
+        this.decorations = buildCodeBlockDecorations(update.view);
       }
     }
   },
@@ -309,6 +482,8 @@ function renderInline(text) {
     .map((part, i) => {
       if (i % 2) return `<code>${escapeHtml(part.slice(1, -1))}</code>`;
       return escapeHtml(part.replace(/\\\|/g, "|"))
+        .replace(/&amp;(#\d+|#x[\da-f]+|\w+);/gi, "&$1;") // entities such as &rarr;
+        .replace(/&lt;u&gt;(.+?)&lt;\/u&gt;/gi, "<u>$1</u>")
         .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '<span class="cm-table-link">$1</span>')
         .replace(/(\*\*|__)(?=\S)(.+?)(?<=\S)\1/g, "<strong>$2</strong>")
         .replace(/(\*|_)(?=\S)(.+?)(?<=\S)\1/g, "<em>$2</em>")
@@ -530,7 +705,9 @@ function makeState(text) {
       syntaxHighlighting(mdHighlight),
       listDisplay,
       headerMarks,
-      inlineCode,
+      inlineMarks,
+      typeArrows,
+      codeBlocks,
       tableDisplay,
       tableEditing,
       formatting,
@@ -564,7 +741,9 @@ const outlineEmptyEl = document.getElementById("outline-empty");
 function cleanHeadingText(text) {
   return text
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1") // links / images -> label
+    .replace(/<\/?u>/gi, "")
     .replace(/[*_`~]/g, "")
+    .replace(/&(#\d+|#x[\da-f]+|\w+);/gi, decodeEntity)
     .trim();
 }
 
@@ -880,6 +1059,20 @@ try {
   selectTab(localStorage.getItem("sidebarTab") ?? "outline");
 } catch {}
 
+// ---------- About ----------
+
+async function showAbout() {
+  const version = await getVersion();
+  await message(
+    `${APP_NAME} ${version}\n\n` +
+      "A Markdown editor that shows formatting as you type, with a heading outline, " +
+      "recent files and table editing.\n\n" +
+      "https://github.com/mhenry1384\n\n" +
+      "Licensed under the GNU General Public License v3 (GPLv3).",
+    { title: `About ${APP_NAME}`, kind: "info" },
+  );
+}
+
 // ---------- Startup ----------
 
 async function init() {
@@ -893,6 +1086,7 @@ async function init() {
     else if (event.payload === "open") enqueue(openWithDialog);
     else if (event.payload === "save") enqueue(() => saveCurrent());
     else if (event.payload === "insert-table") insertTable(view);
+    else if (event.payload === "about") showAbout().catch(showError);
     else if (formatCommands[event.payload]) {
       formatCommands[event.payload](view);
       view.focus();

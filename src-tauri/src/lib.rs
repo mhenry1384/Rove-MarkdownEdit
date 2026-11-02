@@ -5,7 +5,7 @@ use std::{
 };
 
 use tauri::{
-    menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu},
+    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     AppHandle, Emitter, Manager, State,
 };
 
@@ -125,15 +125,8 @@ fn shortcut_item(app: &AppHandle, id: &str, label: &str, accel: &str) -> tauri::
 
 fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let info = app.package_info();
-    let about = PredefinedMenuItem::about(
-        app,
-        Some(&format!("About {}", info.name)),
-        Some(AboutMetadata {
-            name: Some(info.name.clone()),
-            version: Some(info.version.to_string()),
-            ..Default::default()
-        }),
-    )?;
+    // Shown by the frontend, so it looks the same on every platform.
+    let about = MenuItem::with_id(app, "about", format!("&About {}", info.name), true, None::<&str>)?;
     let sep = || PredefinedMenuItem::separator(app);
 
     let file = Submenu::with_items(
@@ -174,6 +167,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         &[
             &shortcut_item(app, "bold", "&Bold", "CmdOrCtrl+B")?,
             &shortcut_item(app, "italic", "&Italic", "CmdOrCtrl+I")?,
+            &shortcut_item(app, "underline", "&Underline", "CmdOrCtrl+U")?,
             &sep()?,
             &shortcut_item(app, "heading-1", "Heading &1", "CmdOrCtrl+1")?,
             &shortcut_item(app, "heading-2", "Heading &2", "CmdOrCtrl+2")?,

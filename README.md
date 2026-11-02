@@ -5,6 +5,7 @@ A Markdown editor built with Tauri 2, Vite and CodeMirror 6.
 - **Outline tab**: every heading in the document. It updates as you type, and clicking a heading jumps to it.
 - **Files tab**: recently opened files, newest first. Clicking one saves the current file and opens it.
 - **Single instance**: opening a `.md` file while the app is running sends it to the open window. The window saves the current file and opens the new one.
+- **Live formatting**: the markers of `code`, bold, italic, strikethrough and `<u>`underline`</u>` spans, and the ``` fences of code blocks, are hidden unless the cursor is inside. HTML entities such as `&rarr;` are drawn as their character, and typing `->` or `<-` turns into `&rarr;` or `&larr;`.
 - **Saving**: changes save automatically 1.5 s after you stop typing, and also when you switch files or close the window.
 
 ## Shortcuts
@@ -16,6 +17,7 @@ A Markdown editor built with Tauri 2, Vite and CodeMirror 6.
 | Ctrl+N          | New file                                                |
 | Ctrl+B          | Bold / unbold the selection or word                     |
 | Ctrl+I          | Italicize / unitalicize the selection or word           |
+| Ctrl+U          | Underline / ununderline the selection or word (`<u>`)   |
 | Ctrl+1 … Ctrl+5 | Make the line a heading of that level (again to remove) |
 
 ## Development

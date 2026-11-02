@@ -1,6 +1,6 @@
 // ---------- Formatting ----------
-// Ctrl+B / Ctrl+I toggle bold and italic on the selection (or the word at the
-// cursor). Ctrl+1 … Ctrl+5 turn the current line(s) into a heading of that
+// Ctrl+B / Ctrl+I / Ctrl+U toggle bold, italic and underline (<u>) on the
+// selection (or the word at the cursor). Ctrl+1 … Ctrl+5 turn the current line(s) into a heading of that
 // level; pressing it again on a heading of the same level removes the heading.
 
 import { EditorSelection, Prec } from "@codemirror/state";
@@ -34,15 +34,50 @@ function wordAt(state, pos) {
   return null;
 }
 
-function toggleInline(name, marker) {
-  const n = marker.length;
+/** The opening and closing EmphasisMark of the `name` node around from..to, or null. */
+function emphasisMarks(name) {
+  return (state, from, to) => {
+    const node = enclosingNode(state, from, to, name);
+    if (node?.firstChild?.name !== "EmphasisMark" || node.lastChild?.name !== "EmphasisMark") return null;
+    return { open: node.firstChild, close: node.lastChild };
+  };
+}
+
+/** The <u> and </u> tags around from..to on one line, or null. */
+function underlineTags(state, from, to) {
+  const line = state.doc.lineAt(from);
+  if (to > line.to) return null;
+  const tree = ensureSyntaxTree(state, line.to, 200) ?? syntaxTree(state);
+  const empty = from === to;
+  for (const m of line.text.matchAll(/<u>(.*?)<\/u>/gi)) {
+    const start = line.from + m.index;
+    const end = start + m[0].length;
+    if (empty ? !(start < from && from < end) : !(start <= from && to <= end)) continue;
+    if (tree.resolve(start, 1).name !== "HTMLTag") continue; // inside code
+    return { open: { from: start, to: start + 3 }, close: { from: end - 4, to: end } };
+  }
+  return null;
+}
+
+/**
+ * Toggles open/close markers around each selection range. `findMarks` returns
+ * the existing markers around a range, if it is already formatted.
+ */
+function toggleInline(findMarks, openMarker, closeMarker = openMarker) {
+  const n = openMarker.length;
+  const c = closeMarker.length;
+  // Cursor between empty markers ("**|**") from a previous toggle, but not "***|***".
+  const isEmptyPair = (state, pos) =>
+    state.sliceDoc(pos - n, pos) === openMarker &&
+    state.sliceDoc(pos, pos + c) === closeMarker &&
+    !(openMarker[0] === "*" && (state.sliceDoc(pos - n - 1, pos - n) === "*" || state.sliceDoc(pos + c, pos + c + 1) === "*"));
   return (view) => {
     const { state } = view;
     const tr = state.changeByRange((range) => {
       // Already formatted: remove the markers.
-      const node = enclosingNode(state, range.from, range.to, name);
-      if (node?.firstChild?.name === "EmphasisMark" && node.lastChild?.name === "EmphasisMark") {
-        const { firstChild: open, lastChild: close } = node;
+      const marks = findMarks(state, range.from, range.to);
+      if (marks) {
+        const { open, close } = marks;
         const changes = state.changes([
           { from: open.from, to: open.to },
           { from: close.from, to: close.to },
@@ -55,11 +90,8 @@ function toggleInline(name, marker) {
 
       if (range.empty) {
         const pos = range.from;
-        // Cursor between empty markers ("**|**") from a previous toggle: remove them.
-        const lead = /\**$/.exec(state.sliceDoc(Math.max(0, pos - 4), pos))[0].length;
-        const trail = /^\**/.exec(state.sliceDoc(pos, pos + 4))[0].length;
-        if (lead === n && trail === n) {
-          return { changes: { from: pos - n, to: pos + n }, range: EditorSelection.cursor(pos - n) };
+        if (isEmptyPair(state, pos)) {
+          return { changes: { from: pos - n, to: pos + c }, range: EditorSelection.cursor(pos - n) };
         }
         // Wrap the word at the cursor, or insert empty markers to type into.
         const word = wordAt(state, pos);
@@ -67,8 +99,8 @@ function toggleInline(name, marker) {
         const to = word ? word.to : pos;
         return {
           changes: [
-            { from, insert: marker },
-            { from: to, insert: marker },
+            { from, insert: openMarker },
+            { from: to, insert: closeMarker },
           ],
           range: EditorSelection.cursor(pos + n),
         };
@@ -79,8 +111,8 @@ function toggleInline(name, marker) {
       while (from < to && /\s/.test(state.sliceDoc(from, from + 1))) from++;
       while (to > from && /\s/.test(state.sliceDoc(to - 1, to))) to--;
       const changes = [
-        { from, insert: marker },
-        { from: to, insert: marker },
+        { from, insert: openMarker },
+        { from: to, insert: closeMarker },
       ];
       return {
         changes,
@@ -135,16 +167,19 @@ function setHeading(level) {
 
 /** Commands by native menu item id (see build_menu in lib.rs). */
 export const formatCommands = {
-  bold: toggleInline("StrongEmphasis", "**"),
-  italic: toggleInline("Emphasis", "*"),
+  bold: toggleInline(emphasisMarks("StrongEmphasis"), "**"),
+  italic: toggleInline(emphasisMarks("Emphasis"), "*"),
+  underline: toggleInline(underlineTags, "<u>", "</u>"),
 };
 for (let level = 1; level <= 5; level++) formatCommands[`heading-${level}`] = setHeading(level);
 
-// High precedence: the default keymap binds Mod-i to "select parent syntax".
+// High precedence: the default keymap binds Mod-i to "select parent syntax"
+// and Mod-u to "undo selection".
 export const formatting = Prec.high(
   keymap.of([
     { key: "Mod-b", run: formatCommands.bold },
     { key: "Mod-i", run: formatCommands.italic },
+    { key: "Mod-u", run: formatCommands.underline },
     ...[1, 2, 3, 4, 5].map((level) => ({ key: `Mod-${level}`, run: formatCommands[`heading-${level}`] })),
   ]),
 );
