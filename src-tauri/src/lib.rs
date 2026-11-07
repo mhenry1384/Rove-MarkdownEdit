@@ -177,6 +177,18 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         ],
     )?;
 
+    // Lists the focus shortcuts so they can be discovered.
+    let view = Submenu::with_items(
+        app,
+        "&View",
+        true,
+        &[
+            &shortcut_item(app, "focus-outline", "Focus &Outline", "Alt+1")?,
+            &shortcut_item(app, "focus-files", "Focus &Files", "Alt+2")?,
+            &shortcut_item(app, "focus-editor", "Focus &Editor", "Alt+3")?,
+        ],
+    )?;
+
     #[cfg(target_os = "macos")]
     {
         let app_menu = Submenu::with_items(
@@ -201,13 +213,13 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             true,
             &[&PredefinedMenuItem::minimize(app, None)?, &PredefinedMenuItem::maximize(app, None)?],
         )?;
-        Menu::with_items(app, &[&app_menu, &file, &edit, &format, &window])
+        Menu::with_items(app, &[&app_menu, &file, &edit, &view, &format, &window])
     }
 
     #[cfg(not(target_os = "macos"))]
     {
         let help = Submenu::with_items(app, "&Help", true, &[&about])?;
-        Menu::with_items(app, &[&file, &edit, &format, &help])
+        Menu::with_items(app, &[&file, &edit, &view, &format, &help])
     }
 }
 

@@ -192,6 +192,16 @@ button {
   background: var(--active);
 }
 
+.list:focus {
+  outline: none;
+}
+
+/* Keyboard cursor, shown while the list has focus. */
+.list:focus li.cursor {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .empty {
   padding: 16px;
   color: var(--muted);

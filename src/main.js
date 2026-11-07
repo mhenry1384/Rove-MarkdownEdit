@@ -83,6 +83,12 @@ const editorTheme = EditorView.theme({
   // The find/replace fields are dark text on white, where the dark theme's
   // selection color would hide the text.
   ".cm-panel .cm-textfield::selection": { backgroundColor: "#c8ccd1 !important" },
+  // CodeMirror sizes the find/replace controls at 70-80% of the editor font.
+  ".cm-panel.cm-search .cm-textfield, .cm-panel.cm-search .cm-button, .cm-panel.cm-search label": {
+    fontSize: "13px",
+  },
+  ".cm-panel.cm-search [name=close]": { fontSize: "18px" },
+  ".cm-panel.cm-search .cm-button:disabled": { opacity: "0.45", cursor: "default" },
   ".cm-activeLine": { backgroundColor: "var(--active-line)" },
   ".cm-gutters": { display: "none" },
   ".cm-clickable-link": { cursor: "pointer" },
@@ -693,6 +699,45 @@ const clickableLinks = [
   }),
 ];
 
+// ---------- Find / replace panel ----------
+// "replace" and "replace all" are disabled (and Enter in the replace field does
+// nothing) while the replace field is empty.
+
+function syncReplaceButtons(view) {
+  const panel = view.dom.querySelector(".cm-search");
+  const field = panel?.querySelector("input[name=replace]");
+  if (!field) return;
+  const empty = field.value === "";
+  for (const button of panel.querySelectorAll("button[name=replace], button[name=replaceAll]")) {
+    button.disabled = empty;
+  }
+}
+
+const replaceGuard = ViewPlugin.fromClass(
+  class {
+    constructor(view) {
+      this.view = view;
+      this.onInput = () => syncReplaceButtons(view);
+      this.onKeydown = (e) => {
+        if (e.key === "Enter" && e.target.matches?.(".cm-search input[name=replace]") && e.target.value === "") {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      };
+      view.dom.addEventListener("input", this.onInput);
+      view.dom.addEventListener("keydown", this.onKeydown, true);
+    }
+    update(update) {
+      // The panel may be mounted after this plugin updates.
+      queueMicrotask(() => syncReplaceButtons(update.view));
+    }
+    destroy() {
+      this.view.dom.removeEventListener("input", this.onInput);
+      this.view.dom.removeEventListener("keydown", this.onKeydown, true);
+    }
+  },
+);
+
 function makeState(text) {
   return EditorState.create({
     doc: text,
@@ -712,6 +757,7 @@ function makeState(text) {
       tableEditing,
       formatting,
       clickableLinks,
+      replaceGuard,
       editorTheme,
       EditorView.lineWrapping,
       EditorView.updateListener.of((update) => {
@@ -732,6 +778,68 @@ const view = new EditorView({
   parent: document.getElementById("editor"),
   state: makeState(""),
 });
+
+// ---------- Keyboard lists ----------
+// The outline and files lists can be focused (Tab, Alt+1 / Alt+2) and driven
+// with the keyboard: arrows, Home/End and PageUp/PageDown move a cursor, Enter
+// activates the item and Escape returns to the editor. On focus the cursor
+// starts at the highlighted ("current") item. Mouse clicks don't focus a list.
+
+function keyboardList(el, { onActivate, onMove, onDelete }) {
+  let cursor = -1;
+  const items = () => el.children;
+
+  function setCursor(i, notify = true) {
+    const n = items().length;
+    cursor = n ? Math.max(0, Math.min(n - 1, i)) : -1;
+    for (const [j, li] of [...items()].entries()) li.classList.toggle("cursor", j === cursor);
+    const li = items()[cursor];
+    if (!li) return;
+    li.scrollIntoView({ block: "nearest" });
+    if (notify) onMove?.(li);
+  }
+
+  el.tabIndex = 0;
+  el.addEventListener("mousedown", (e) => e.preventDefault());
+  el.addEventListener("focus", () => {
+    const current = [...items()].findIndex((li) => li.classList.contains("current"));
+    setCursor(current >= 0 ? current : 0, false);
+  });
+  el.addEventListener("keydown", (e) => {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    const page = Math.max(1, Math.floor(el.parentElement.clientHeight / (items()[0]?.offsetHeight || 24)) - 1);
+    const li = items()[cursor];
+    switch (e.key) {
+      case "ArrowDown": setCursor(cursor + 1); break;
+      case "ArrowUp": setCursor(cursor - 1); break;
+      case "PageDown": setCursor(cursor + page); break;
+      case "PageUp": setCursor(cursor - page); break;
+      case "Home": setCursor(0); break;
+      case "End": setCursor(items().length - 1); break;
+      case "Enter":
+      case " ":
+        if (li) onActivate(li);
+        break;
+      case "Delete":
+        if (!li || !onDelete) return;
+        onDelete(li);
+        break;
+      case "Escape":
+        view.focus();
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+  });
+
+  return {
+    /** Call after re-rendering the items, to keep the cursor in place. */
+    refresh() {
+      if (document.activeElement === el) setCursor(cursor, false);
+    },
+  };
+}
 
 // ---------- Outline ----------
 
@@ -793,6 +901,7 @@ function renderOutline() {
   );
   outlineEmptyEl.classList.toggle("hidden", headings.length > 0);
   highlightCurrentHeading();
+  outlineKeys.refresh();
 }
 
 function highlightCurrentHeading() {
@@ -804,9 +913,7 @@ function highlightCurrentHeading() {
   }
 }
 
-outlineEl.addEventListener("click", (e) => {
-  const li = e.target.closest("li");
-  if (!li) return;
+function goToHeading(li) {
   const h = headings[Number(li.dataset.index)];
   if (!h) return;
   view.dispatch({
@@ -814,6 +921,20 @@ outlineEl.addEventListener("click", (e) => {
     effects: EditorView.scrollIntoView(h.from, { y: "start", yMargin: 12 }),
   });
   view.focus();
+}
+
+outlineEl.addEventListener("click", (e) => {
+  const li = e.target.closest("li");
+  if (li) goToHeading(li);
+});
+
+const outlineKeys = keyboardList(outlineEl, {
+  onActivate: goToHeading,
+  // Moving through the outline scrolls the editor without moving its cursor.
+  onMove(li) {
+    const h = headings[Number(li.dataset.index)];
+    if (h) view.dispatch({ effects: EditorView.scrollIntoView(h.from, { y: "start", yMargin: 12 }) });
+  },
 });
 
 // ---------- Files (recent) ----------
@@ -861,20 +982,31 @@ function renderFiles() {
     }),
   );
   filesEmptyEl.classList.toggle("hidden", recentFiles.length > 0);
+  filesKeys.refresh();
+}
+
+function removeRecent(path) {
+  enqueue(async () => {
+    recentFiles = await invoke("remove_recent_file", { path });
+    renderFiles();
+  });
 }
 
 filesEl.addEventListener("click", (e) => {
   const li = e.target.closest("li");
   if (!li) return;
   const path = li.dataset.path;
-  if (e.target.closest(".file-remove")) {
+  if (e.target.closest(".file-remove")) removeRecent(path);
+  else enqueue(() => openFile(path));
+});
+
+const filesKeys = keyboardList(filesEl, {
+  onActivate: (li) =>
     enqueue(async () => {
-      recentFiles = await invoke("remove_recent_file", { path });
-      renderFiles();
-    });
-  } else {
-    enqueue(() => openFile(path));
-  }
+      await openFile(li.dataset.path);
+      view.focus();
+    }),
+  onDelete: (li) => removeRecent(li.dataset.path),
 });
 
 // ---------- Status / title ----------
@@ -913,14 +1045,17 @@ function scheduleAutosave() {
 
 /**
  * Save the current document. For an untitled document with content, asks for a
- * path. Returns false if the user cancelled the save dialog.
+ * path. With `explicit` (the user chose Save), an untitled document always asks
+ * for a path, even if it is empty or unchanged. Returns false if the user
+ * cancelled the save dialog.
  */
-async function saveCurrent() {
+async function saveCurrent({ explicit = false } = {}) {
   clearTimeout(autosaveTimer);
-  if (!dirty) return true;
+  const untitledSave = explicit && !currentPath;
+  if (!dirty && !untitledSave) return true;
 
   if (!currentPath) {
-    if (view.state.doc.length === 0) return true; // nothing worth saving
+    if (view.state.doc.length === 0 && !untitledSave) return true; // nothing worth saving
     const path = await saveDialog({ filters: MD_FILTERS, defaultPath: "Untitled.md" });
     if (!path) return false;
     currentPath = path;
@@ -993,7 +1128,7 @@ document.getElementById("btn-new").addEventListener("click", () => enqueue(newFi
 document.addEventListener("keydown", (e) => {
   if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
   const key = e.key.toLowerCase();
-  if (key === "s") enqueue(() => saveCurrent());
+  if (key === "s") enqueue(() => saveCurrent({ explicit: true }));
   else if (key === "o") enqueue(openWithDialog);
   else if (key === "n") enqueue(newFile);
   else return;
@@ -1053,6 +1188,37 @@ splitter.addEventListener("pointerdown", (e) => {
   splitter.addEventListener("pointerup", onUp);
 });
 
+// ---------- Focus shortcuts ----------
+// Alt+1 / Alt+2 / Alt+3 focus the outline, the files list and the editor (also
+// listed in the View menu). e.code is used because Option+digit on a Mac types
+// a symbol.
+
+const FOCUS_TARGETS = {
+  "focus-outline": () => {
+    selectTab("outline");
+    outlineEl.focus();
+  },
+  "focus-files": () => {
+    selectTab("files");
+    filesEl.focus();
+  },
+  "focus-editor": () => view.focus(),
+};
+const FOCUS_KEYS = { Digit1: "focus-outline", Digit2: "focus-files", Digit3: "focus-editor" };
+
+document.addEventListener(
+  "keydown",
+  (e) => {
+    if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    const target = FOCUS_KEYS[e.code];
+    if (!target) return;
+    e.preventDefault();
+    e.stopPropagation();
+    FOCUS_TARGETS[target]();
+  },
+  true,
+);
+
 try {
   const width = localStorage.getItem("sidebarWidth");
   if (width) sidebar.style.width = width;
@@ -1084,9 +1250,10 @@ async function init() {
   await listen("menu", (event) => {
     if (event.payload === "new") enqueue(newFile);
     else if (event.payload === "open") enqueue(openWithDialog);
-    else if (event.payload === "save") enqueue(() => saveCurrent());
+    else if (event.payload === "save") enqueue(() => saveCurrent({ explicit: true }));
     else if (event.payload === "insert-table") insertTable(view);
     else if (event.payload === "about") showAbout().catch(showError);
+    else if (FOCUS_TARGETS[event.payload]) FOCUS_TARGETS[event.payload]();
     else if (formatCommands[event.payload]) {
       formatCommands[event.payload](view);
       view.focus();
