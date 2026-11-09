@@ -2,7 +2,7 @@
 
 ## Git branches
 
-- Make changes directly in `main`. Don't create feature branches, and if you find yourself on another branch, say so before committing.
+- Always make changes directly in `main` unless the user says otherwise. Don't create a feature branch without being asked, and if you find yourself on another branch, say so before committing.
 
 ## Version number
 
