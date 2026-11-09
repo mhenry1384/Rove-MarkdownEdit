@@ -4,17 +4,22 @@
 // newline when the parser hasn't reached the cursor yet (which happens after an
 // edit in a long document), on the wrapped lines of a multi-line item, and when
 // a tab follows the marker.
+//
+// Pasting multi-line text into a list item joins it into one line, so wrapped
+// text from elsewhere doesn't break the item apart.
 
 import { Prec } from "@codemirror/state";
-import { keymap } from "@codemirror/view";
-import { forceParsing, syntaxTree } from "@codemirror/language";
+import { EditorView, keymap } from "@codemirror/view";
+import { ensureSyntaxTree, forceParsing, syntaxTree } from "@codemirror/language";
 
 const PARSE_TIMEOUT_MS = 500;
 const NOT_ITEM_TEXT = new Set(["FencedCode", "CodeBlock", "HTMLBlock", "Blockquote"]);
+const LIST_LINE = /^\s*(?:[-+*]|\d+[.)])\s/;
 
 /** The ListItem whose own text contains pos, or null if pos is in a nested block. */
 function listItemAt(state, pos) {
-  for (let node = syntaxTree(state).resolveInner(pos, -1); node; node = node.parent) {
+  const tree = ensureSyntaxTree(state, pos, PARSE_TIMEOUT_MS) ?? syntaxTree(state);
+  for (let node = tree.resolveInner(pos, -1); node; node = node.parent) {
     if (NOT_ITEM_TEXT.has(node.name)) return null;
     if (node.name === "ListItem") return node;
   }
@@ -79,5 +84,39 @@ export function listEnter(view) {
   return true;
 }
 
-// Highest precedence: this has to run before the Markdown keymap's Enter.
-export const listEditing = Prec.highest(keymap.of([{ key: "Enter", run: listEnter }]));
+/**
+ * `text` joined into one line if it should be when pasted at the cursor, or
+ * null to paste it as usual. Line breaks become a space unless the lines
+ * already have whitespace between them. Text that is itself a list keeps its
+ * lines, so list items can still be moved around by cut and paste.
+ */
+export function pastedTextForListItem(state, text) {
+  if (!/[\r\n]/.test(text) || state.selection.ranges.length > 1) return null;
+  if (text.split(/\r\n?|\n/).some((pasted) => LIST_LINE.test(pasted))) return null;
+
+  const { from } = state.selection.main;
+  const line = state.doc.lineAt(from);
+  const end = line.from + line.text.trimEnd().length;
+  if (end === line.from) return null;
+  const mark = listItemAt(state, end)?.getChild("ListMark");
+  if (!mark || (mark.from >= line.from && from < mark.to)) return null;
+
+  return text
+    .replace(/^[\r\n]+|[\r\n]+$/g, "")
+    .replace(/(\S)[\r\n]+(?=\S)/g, "$1 ")
+    .replace(/[\r\n]+/g, "");
+}
+
+export const listEditing = [
+  // Highest precedence: this has to run before the Markdown keymap's Enter.
+  Prec.highest(keymap.of([{ key: "Enter", run: listEnter }])),
+  EditorView.domEventHandlers({
+    paste(event, view) {
+      const joined = pastedTextForListItem(view.state, event.clipboardData?.getData("text/plain") ?? "");
+      if (joined === null) return false;
+      event.preventDefault();
+      view.dispatch(view.state.replaceSelection(joined), { userEvent: "input.paste", scrollIntoView: true });
+      return true;
+    },
+  }),
+];
