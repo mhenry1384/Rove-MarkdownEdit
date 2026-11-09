@@ -24,6 +24,7 @@ import { tags } from "@lezer/highlight";
 
 import { tableEditing, showTableMenu, insertTable } from "./table-editing.js";
 import { formatting, formatCommands } from "./formatting.js";
+import { listEditing } from "./list-editing.js";
 
 const APP_NAME = "Rove MarkdownEdit";
 const AUTOSAVE_DELAY_MS = 1500;
@@ -755,6 +756,7 @@ function makeState(text) {
       codeBlocks,
       tableDisplay,
       tableEditing,
+      listEditing,
       formatting,
       clickableLinks,
       replaceGuard,

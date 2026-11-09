@@ -1,6 +1,6 @@
 [package]
 name = "rove-markdownedit"
-version = "0.1.12"
+version = "0.1.13"
 description = "Rove MarkdownEdit - a Markdown editor"
 edition = "2021"
 
