@@ -110,6 +110,29 @@ fn take_initial_file(state: State<InitialFile>) -> Option<String> {
 // ---------- Menu ----------
 // Custom items are sent to the frontend as a "menu" event carrying the item id.
 
+#[cfg(windows)]
+#[link(name = "user32")]
+extern "system" {
+    fn PostMessageW(hwnd: *mut std::ffi::c_void, msg: u32, wparam: usize, lparam: isize) -> i32;
+}
+
+/// Opens the menu whose access key is `mnemonic`. On Windows the webview takes
+/// Alt+letter, so the window never gets the keystroke; the frontend passes it
+/// on and this sends the system command that Alt+letter would have produced.
+#[tauri::command]
+fn open_menu(window: tauri::WebviewWindow, mnemonic: char) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        const WM_SYSCOMMAND: u32 = 0x0112;
+        const SC_KEYMENU: usize = 0xF100;
+        let hwnd = window.hwnd().map_err(|e| e.to_string())?;
+        unsafe { PostMessageW(hwnd.0, WM_SYSCOMMAND, SC_KEYMENU, mnemonic as isize) };
+    }
+    #[cfg(not(windows))]
+    let _ = (window, mnemonic);
+    Ok(())
+}
+
 /// A custom menu item with a keyboard shortcut. On macOS the shortcut is a real
 /// key equivalent (the webview gets the key first, so the frontend's own
 /// handler still wins). Elsewhere it is only shown in the label, because the
@@ -254,6 +277,7 @@ pub fn run() {
             read_file,
             write_file,
             take_initial_file,
+            open_menu,
         ])
         .build(tauri::generate_context!())
         .expect("error while running Rove MarkdownEdit")

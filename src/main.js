@@ -1219,6 +1219,24 @@ document.addEventListener(
   true,
 );
 
+// The webview keeps Alt+letter from reaching the Windows menu bar, so the menu
+// access keys (the "&" letters in build_menu) are passed on here.
+if (navigator.userAgent.includes("Windows")) {
+  const MENU_MNEMONICS = new Set(["f", "e", "v", "o", "h"]);
+  document.addEventListener(
+    "keydown",
+    (e) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.repeat) return;
+      const mnemonic = e.key.toLowerCase();
+      if (!MENU_MNEMONICS.has(mnemonic)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      invoke("open_menu", { mnemonic }).catch(showError);
+    },
+    true,
+  );
+}
+
 try {
   const width = localStorage.getItem("sidebarWidth");
   if (width) sidebar.style.width = width;
