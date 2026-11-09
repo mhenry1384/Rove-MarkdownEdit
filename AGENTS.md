@@ -1,5 +1,9 @@
 # Rove MarkdownEdit
 
+## Git branches
+
+- Make changes directly in `main`. Don't create feature branches, and if you find yourself on another branch, say so before committing.
+
 ## Version number
 
 - On Windows, every time you do a release build and there are uncommitted changes (check `git status`), increment the patch version first. Update it in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` (the build updates `Cargo.lock`). Also update both `"version"` fields at the top of `package-lock.json` (the root and the `packages[""]` entry).
