@@ -155,6 +155,8 @@ button {
   gap: 6px;
   padding: 6px 8px;
   border-top: 1px solid var(--border);
+  -webkit-user-select: none; /* WKWebView on Mac only honors the prefixed form */
+  user-select: none;
 }
 
 .panel-toolbar button {
