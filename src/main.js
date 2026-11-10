@@ -97,6 +97,18 @@ const editorTheme = EditorView.theme({
   ".cm-gutters": { display: "none" },
   ".cm-clickable-link": { cursor: "pointer" },
   ".cm-bullet": { color: "var(--fg)", display: "inline-block", width: "0.7em", textAlign: "center" },
+  ".cm-bullet::before": {
+    content: '""',
+    display: "inline-block",
+    boxSizing: "border-box",
+    width: "0.38em",
+    height: "0.38em",
+    verticalAlign: "0.12em",
+    backgroundColor: "currentColor",
+    borderRadius: "50%",
+  },
+  ".cm-bullet-2::before": { backgroundColor: "transparent", border: "1.5px solid currentColor" },
+  ".cm-bullet-3::before": { borderRadius: "0" },
   ".cm-line.cm-list-gap": { lineHeight: "6px", fontSize: "6px" },
   ".cm-header-mark": { opacity: "0.25" },
   ".cm-header-mark, .cm-header-mark *": { color: "var(--fg) !important" },
@@ -144,22 +156,22 @@ const editorTheme = EditorView.theme({
 
 // ---------- List display (display only; the text is unchanged) ----------
 // Bullet markers (*, -, +) are drawn as real bullets, and blank lines between
-// items of a loose list shrink to a small gap, as in Typora.
+// items of a loose list shrink to a small gap, as in Typora. The bullet's
+// shape cycles with nesting depth: solid dot, hollow circle, solid square.
 
-const BULLETS = ["•", "◦", "▪"];
+const BULLET_SHAPES = 3;
 
 class BulletWidget extends WidgetType {
-  constructor(char) {
+  constructor(level) {
     super();
-    this.char = char;
+    this.level = level;
   }
   eq(other) {
-    return other.char === this.char;
+    return other.level === this.level;
   }
   toDOM() {
     const span = document.createElement("span");
-    span.className = "cm-bullet";
-    span.textContent = this.char;
+    span.className = `cm-bullet cm-bullet-${this.level}`;
     return span;
   }
 }
@@ -180,7 +192,7 @@ function buildListDecorations(view) {
         if (node.name === "ListMark" && node.node.parent?.parent?.name === "BulletList") {
           let depth = 0;
           for (let p = node.node.parent; p; p = p.parent) if (p.name === "BulletList") depth++;
-          const widget = new BulletWidget(BULLETS[(depth - 1) % BULLETS.length]);
+          const widget = new BulletWidget(((depth - 1) % BULLET_SHAPES) + 1);
           marks.push([node.from, Decoration.replace({ widget })]);
         } else if (node.name === "BulletList" || node.name === "OrderedList") {
           // Only the outermost list: nested lists are covered by its range.
