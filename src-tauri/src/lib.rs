@@ -204,6 +204,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &PredefinedMenuItem::cut(app, None)?,
             &PredefinedMenuItem::copy(app, None)?,
             &PredefinedMenuItem::paste(app, None)?,
+            &shortcut_item(app, "paste-plain", "Paste as &Plain Text", "CmdOrCtrl+Shift+V")?,
             &PredefinedMenuItem::select_all(app, None)?,
             &sep()?,
             &shortcut_item(app, "insert-table", "Insert &Table", "CmdOrCtrl+Shift+T")?,
@@ -290,6 +291,7 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(InitialFile(Mutex::new(initial)))

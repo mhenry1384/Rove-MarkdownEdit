@@ -26,6 +26,8 @@ import { tableEditing, showTableMenu, insertTable } from "./table-editing.js";
 import { formatting, formatCommands } from "./formatting.js";
 import { listEditing } from "./list-editing.js";
 import { spellcheck, loadSpellchecker } from "./spellcheck.js";
+import { fileStemFromHeading, headingFromFileName } from "./file-title.js";
+import { richPaste, pasteAsPlainText } from "./paste.js";
 
 const APP_NAME = "Rove MarkdownEdit";
 const AUTOSAVE_DELAY_MS = 1500;
@@ -763,6 +765,7 @@ function makeState(text) {
       tableDisplay,
       spellcheck(showError), // before tableEditing, so it gets right-clicks on underlined words first
       tableEditing,
+      richPaste(showError), // before listEditing, so its paste handler sees only plain text
       listEditing,
       formatting,
       clickableLinks,
@@ -1052,6 +1055,24 @@ function scheduleAutosave() {
   autosaveTimer = setTimeout(() => enqueue(() => saveCurrent()), AUTOSAVE_DELAY_MS);
 }
 
+/** The name offered when first saving: the first heading, or "Untitled". */
+function suggestedFileName() {
+  const stem = extractHeadings(view.state)
+    .map((h) => fileStemFromHeading(h.text))
+    .find(Boolean);
+  return `${stem ?? "Untitled"}.md`;
+}
+
+/** Gives a document that is empty or only whitespace a heading from its file name. */
+function addHeadingIfBlank(path) {
+  const { doc } = view.state;
+  if (doc.toString().trim()) return;
+  const title = headingFromFileName(splitPath(path).name);
+  if (!title) return;
+  const insert = `# ${title}\n\n`;
+  view.dispatch({ changes: { from: 0, to: doc.length, insert }, selection: { anchor: insert.length } });
+}
+
 /**
  * Save the current document. For an untitled document with content, asks for a
  * path. With `explicit` (the user chose Save), an untitled document always asks
@@ -1065,11 +1086,12 @@ async function saveCurrent({ explicit = false } = {}) {
 
   if (!currentPath) {
     if (view.state.doc.length === 0 && !untitledSave) return true; // nothing worth saving
-    const path = await saveDialog({ filters: MD_FILTERS, defaultPath: "Untitled.md" });
+    const path = await saveDialog({ filters: MD_FILTERS, defaultPath: suggestedFileName() });
     if (!path) return false;
     currentPath = path;
     recentFiles = await invoke("add_recent_file", { path });
     renderFiles();
+    addHeadingIfBlank(path);
   }
 
   const gen = changeGen;
@@ -1278,6 +1300,7 @@ async function init() {
     if (event.payload === "new") enqueue(newFile);
     else if (event.payload === "open") enqueue(openWithDialog);
     else if (event.payload === "save") enqueue(() => saveCurrent({ explicit: true }));
+    else if (event.payload === "paste-plain") pasteAsPlainText(view).then(() => view.focus()).catch(showError);
     else if (event.payload === "insert-table") insertTable(view);
     else if (event.payload === "about") showAbout().catch(showError);
     else if (FOCUS_TARGETS[event.payload]) FOCUS_TARGETS[event.payload]();
