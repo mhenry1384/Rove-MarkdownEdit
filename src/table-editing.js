@@ -7,6 +7,7 @@
 import { ChangeSet, Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
+import { showContextMenu, closeContextMenu } from "./context-menu.js";
 import {
   Alignment,
   Point,
@@ -237,72 +238,26 @@ const MENU = [
   { label: "Format table", run: (te) => te.format(options) },
 ];
 
-let openMenu = null;
-
-function closeTableMenu() {
-  if (!openMenu) return;
-  openMenu.remove();
-  openMenu = null;
-  window.removeEventListener("mousedown", onOutsideMouseDown, true);
-  window.removeEventListener("keydown", onMenuKeyDown, true);
-  window.removeEventListener("blur", closeTableMenu);
-  window.removeEventListener("resize", closeTableMenu);
-}
-
-function onOutsideMouseDown(e) {
-  if (!openMenu?.contains(e.target)) closeTableMenu();
-}
-
-function onMenuKeyDown(e) {
-  if (e.key === "Escape") {
-    closeTableMenu();
-    e.preventDefault();
-    e.stopPropagation();
-  }
-}
-
 /**
  * Shows the table menu at (x, y) if the cursor is in a table. Returns false
  * (and shows nothing) otherwise.
  */
 export function showTableMenu(view, x, y) {
-  closeTableMenu();
+  closeContextMenu();
   if (!cursorInTable(view)) return false;
   let inHeader = false;
   tableEditor.withCompletedTable(options, ({ focus }) => (inHeader = focus.row < 2));
 
-  const menu = document.createElement("div");
-  menu.className = "table-menu";
-  for (const item of MENU) {
-    if (!item) {
-      menu.append(Object.assign(document.createElement("div"), { className: "table-menu-sep" }));
-      continue;
-    }
-    const button = document.createElement("button");
-    button.disabled = item.bodyRow && inHeader; // the header row can't be moved or deleted
-    button.append(Object.assign(document.createElement("span"), { textContent: item.label }));
-    if (item.key) {
-      button.append(Object.assign(document.createElement("span"), { className: "table-menu-key", textContent: item.key }));
-    }
-    button.addEventListener("click", () => {
-      closeTableMenu();
-      runTableEdit(view, item.run);
-      view.focus();
-    });
-    menu.append(button);
-  }
-  document.body.append(menu);
-
-  // Keep the menu inside the window.
-  const { width, height } = menu.getBoundingClientRect();
-  menu.style.left = `${Math.max(0, Math.min(x, window.innerWidth - width - 4))}px`;
-  menu.style.top = `${Math.max(0, Math.min(y, window.innerHeight - height - 4))}px`;
-
-  openMenu = menu;
-  window.addEventListener("mousedown", onOutsideMouseDown, true);
-  window.addEventListener("keydown", onMenuKeyDown, true);
-  window.addEventListener("blur", closeTableMenu);
-  window.addEventListener("resize", closeTableMenu);
+  const items = MENU.map(
+    (item) =>
+      item && {
+        label: item.label,
+        key: item.key,
+        disabled: item.bodyRow && inHeader, // the header row can't be moved or deleted
+        run: () => runTableEdit(view, item.run),
+      },
+  );
+  showContextMenu(view, x, y, items);
   return true;
 }
 

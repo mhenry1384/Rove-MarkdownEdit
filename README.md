@@ -6,6 +6,7 @@ A Markdown editor built with Tauri 2, Vite and CodeMirror 6.
 - **Files tab**: recently opened files, newest first. Clicking one saves the current file and opens it.
 - **Single instance**: opening a `.md` file while the app is running sends it to the open window. The window saves the current file and opens the new one.
 - **Live formatting**: the markers of `code`, bold, italic, strikethrough and `<u>`underline`</u>` spans, and the ``` fences of code blocks, are hidden unless the cursor is inside. HTML entities such as `&rarr;` are drawn as their character, and typing `->` or `<-` turns into `&rarr;` or `&larr;`.
+- **Spell check**: misspelled words you type get a wavy underline, but text that was already in the file or was pasted does not. Right-click an underlined word to pick a correction or add it to your dictionary. Code, URLs, acronyms and camelCase words are skipped.
 - **Saving**: changes save automatically 1.5 s after you stop typing, and also when you switch files or close the window.
 
 ## Shortcuts
@@ -39,4 +40,4 @@ powershell -ExecutionPolicy Bypass -File scripts/register.ps1
 
 The installer is written to `src-tauri/target/release/bundle/nsis/`. The installer registers the `.md`/`.markdown` file association, so `tauri dev` does not set it up.
 
-The recent files list is stored in `%APPDATA%\com.rove.markdownedit\recent.json`.
+The recent files list is stored in `%APPDATA%\com.rove.markdownedit\recent.json`, and words added to the dictionary in `dictionary.txt` in the same folder, one per line.

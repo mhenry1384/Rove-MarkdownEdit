@@ -319,9 +319,9 @@ button {
   color: var(--error);
 }
 
-/* ---------- Table menu ---------- */
+/* ---------- Context menu ---------- */
 
-.table-menu {
+.context-menu {
   position: fixed;
   z-index: 100;
   min-width: 200px;
@@ -333,7 +333,7 @@ button {
   font-size: 13px;
 }
 
-.table-menu button {
+.context-menu button {
   display: flex;
   justify-content: space-between;
   gap: 24px;
@@ -346,21 +346,21 @@ button {
   cursor: pointer;
 }
 
-.table-menu button:hover {
+.context-menu button:hover {
   background: var(--hover);
 }
 
-.table-menu-key {
+.context-menu-key {
   color: var(--muted);
 }
 
-.table-menu-sep {
+.context-menu-sep {
   height: 1px;
   margin: 4px 6px;
   background: var(--border);
 }
 
-.table-menu button:disabled {
+.context-menu button:disabled {
   color: var(--muted);
   opacity: 0.5;
   cursor: default;

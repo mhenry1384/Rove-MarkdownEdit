@@ -25,6 +25,7 @@ import { tags } from "@lezer/highlight";
 import { tableEditing, showTableMenu, insertTable } from "./table-editing.js";
 import { formatting, formatCommands } from "./formatting.js";
 import { listEditing } from "./list-editing.js";
+import { spellcheck, loadSpellchecker } from "./spellcheck.js";
 
 const APP_NAME = "Rove MarkdownEdit";
 const AUTOSAVE_DELAY_MS = 1500;
@@ -103,6 +104,11 @@ const editorTheme = EditorView.theme({
   ".cm-table th": { backgroundColor: "var(--sidebar-bg)", fontWeight: "600", textAlign: "left" },
   ".cm-inline-code": { backgroundColor: "var(--code-bg)", borderRadius: "3px", padding: "1px 0" },
   ".cm-underline": { textDecoration: "underline" },
+  ".cm-misspelled": {
+    textDecoration: "underline wavy var(--error) 1px",
+    textDecorationSkipInk: "none",
+    textUnderlineOffset: "2px",
+  },
   // Horizontal margins only: CodeMirror measures line heights, and vertical
   // margins would throw them off.
   ".cm-line.cm-codeblock": {
@@ -755,6 +761,7 @@ function makeState(text) {
       typeArrows,
       codeBlocks,
       tableDisplay,
+      spellcheck(showError), // before tableEditing, so it gets right-clicks on underlined words first
       tableEditing,
       listEditing,
       formatting,
@@ -1288,6 +1295,8 @@ async function init() {
   const initial = await invoke("take_initial_file");
   const toOpen = initial ?? recentFiles[0];
   if (toOpen) await enqueue(() => openFile(toOpen));
+
+  loadSpellchecker(view).catch(showError);
 }
 
 init().catch(showError);

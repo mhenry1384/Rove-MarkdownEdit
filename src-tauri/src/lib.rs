@@ -11,6 +11,7 @@ use tauri::{
 
 const MAX_RECENT: usize = 30;
 const RECENT_FILE: &str = "recent.json";
+const DICTIONARY_FILE: &str = "dictionary.txt";
 
 /// The file passed on the command line when this (first) instance launched.
 /// The frontend takes it once on startup.
@@ -88,6 +89,32 @@ fn remove_recent_file(app: AppHandle, path: String) -> Result<Vec<String>, Strin
     list.retain(|p| path_key(p) != key);
     save_recent(&app, &list)?;
     Ok(list)
+}
+
+// ---------- Personal dictionary ----------
+
+fn dictionary_store(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.join(DICTIONARY_FILE))
+}
+
+#[tauri::command]
+fn get_dictionary_words(app: AppHandle) -> Vec<String> {
+    dictionary_store(&app)
+        .ok()
+        .and_then(|p| fs::read_to_string(p).ok())
+        .map(|s| s.lines().map(str::trim).filter(|w| !w.is_empty()).map(String::from).collect())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn add_dictionary_word(app: AppHandle, word: String) -> Result<(), String> {
+    let mut words = get_dictionary_words(app.clone());
+    if !words.contains(&word) {
+        words.push(word);
+    }
+    fs::write(dictionary_store(&app)?, words.join("\n") + "\n").map_err(|e| e.to_string())
 }
 
 // ---------- File I/O ----------
@@ -274,6 +301,8 @@ pub fn run() {
             get_recent_files,
             add_recent_file,
             remove_recent_file,
+            get_dictionary_words,
+            add_dictionary_word,
             read_file,
             write_file,
             take_initial_file,
