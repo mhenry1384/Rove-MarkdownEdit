@@ -19,7 +19,7 @@ import {
   HighlightStyle,
   syntaxHighlighting,
 } from "@codemirror/language";
-import { highlightSelectionMatches } from "@codemirror/search";
+import { highlightSelectionMatches, openSearchPanel } from "@codemirror/search";
 import { tags } from "@lezer/highlight";
 
 import { tableEditing, showTableMenu, insertTable } from "./table-editing.js";
@@ -28,6 +28,7 @@ import { listEditing } from "./list-editing.js";
 import { spellcheck, loadSpellchecker } from "./spellcheck.js";
 import { fileStemFromHeading, headingFromFileName } from "./file-title.js";
 import { richPaste, pasteAsPlainText } from "./paste.js";
+import { findPanel, openReplacePanel } from "./find-panel.js";
 
 const APP_NAME = "Rove MarkdownEdit";
 const AUTOSAVE_DELAY_MS = 1500;
@@ -84,15 +85,6 @@ const editorTheme = EditorView.theme({
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {
     backgroundColor: "var(--sel) !important",
   },
-  // The find/replace fields are dark text on white, where the dark theme's
-  // selection color would hide the text.
-  ".cm-panel .cm-textfield::selection": { backgroundColor: "#c8ccd1 !important" },
-  // CodeMirror sizes the find/replace controls at 70-80% of the editor font.
-  ".cm-panel.cm-search .cm-textfield, .cm-panel.cm-search .cm-button, .cm-panel.cm-search label": {
-    fontSize: "13px",
-  },
-  ".cm-panel.cm-search [name=close]": { fontSize: "18px" },
-  ".cm-panel.cm-search .cm-button:disabled": { opacity: "0.45", cursor: "default" },
   ".cm-activeLine": { backgroundColor: "var(--active-line)" },
   ".cm-gutters": { display: "none" },
   ".cm-clickable-link": { cursor: "pointer" },
@@ -720,45 +712,6 @@ const clickableLinks = [
   }),
 ];
 
-// ---------- Find / replace panel ----------
-// "replace" and "replace all" are disabled (and Enter in the replace field does
-// nothing) while the replace field is empty.
-
-function syncReplaceButtons(view) {
-  const panel = view.dom.querySelector(".cm-search");
-  const field = panel?.querySelector("input[name=replace]");
-  if (!field) return;
-  const empty = field.value === "";
-  for (const button of panel.querySelectorAll("button[name=replace], button[name=replaceAll]")) {
-    button.disabled = empty;
-  }
-}
-
-const replaceGuard = ViewPlugin.fromClass(
-  class {
-    constructor(view) {
-      this.view = view;
-      this.onInput = () => syncReplaceButtons(view);
-      this.onKeydown = (e) => {
-        if (e.key === "Enter" && e.target.matches?.(".cm-search input[name=replace]") && e.target.value === "") {
-          e.preventDefault();
-          e.stopPropagation();
-        }
-      };
-      view.dom.addEventListener("input", this.onInput);
-      view.dom.addEventListener("keydown", this.onKeydown, true);
-    }
-    update(update) {
-      // The panel may be mounted after this plugin updates.
-      queueMicrotask(() => syncReplaceButtons(update.view));
-    }
-    destroy() {
-      this.view.dom.removeEventListener("input", this.onInput);
-      this.view.dom.removeEventListener("keydown", this.onKeydown, true);
-    }
-  },
-);
-
 function makeState(text) {
   return EditorState.create({
     doc: text,
@@ -781,7 +734,7 @@ function makeState(text) {
       listEditing,
       formatting,
       clickableLinks,
-      replaceGuard,
+      findPanel,
       editorTheme,
       EditorView.lineWrapping,
       EditorView.updateListener.of((update) => {
@@ -1174,7 +1127,11 @@ document.addEventListener("keydown", (e) => {
   if (key === "s") enqueue(() => saveCurrent({ explicit: true }));
   else if (key === "o") enqueue(openWithDialog);
   else if (key === "n") enqueue(newFile);
-  else return;
+  // Find / replace from outside the editor (the editor's keymap handles them inside).
+  // Ctrl+R is always swallowed so the webview never reloads.
+  else if (key === "f" || key === "r") {
+    if (!e.defaultPrevented) (key === "f" ? openSearchPanel : openReplacePanel)(view);
+  } else return;
   e.preventDefault();
 });
 
