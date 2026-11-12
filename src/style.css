@@ -13,7 +13,7 @@
      selection underneath the text, so an opaque one would hide it. */
   --code-bg: rgba(31, 35, 40, 0.07);
   --sel: #b6d7ff;
-  --active-line: rgba(31, 35, 40, 0.04);
+  --active-line: rgba(31, 35, 40, 0.06);
   --error: #cf222e;
   --kw: #8250df;
   --str: #0a3069;
@@ -38,7 +38,7 @@
     --code: #ffa657;
     --code-bg: rgba(230, 237, 243, 0.15);
     --sel: #264f78;
-    --active-line: rgba(230, 237, 243, 0.04);
+    --active-line: rgba(230, 237, 243, 0.12);
     --error: #f85149;
     --kw: #d2a8ff;
     --str: #a5d6ff;
@@ -235,6 +235,12 @@ button {
 #files li {
   padding: 6px 6px 6px 12px;
   gap: 6px;
+}
+
+/* An item sliding up to the top is drawn over the ones it passes. */
+#files li.sliding {
+  position: relative;
+  z-index: 1;
 }
 
 #files .file-text {

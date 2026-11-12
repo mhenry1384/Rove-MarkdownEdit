@@ -741,6 +741,7 @@ function makeState(text) {
         if (update.docChanged) {
           changeGen++;
           setDirty(true);
+          promotePending();
           scheduleAutosave();
           scheduleOutline();
         } else if (update.selectionSet) {
@@ -930,7 +931,20 @@ function splitPath(p) {
   return { dir: p.slice(0, i), name: p.slice(i + 1) };
 }
 
+const SLIDE_MS = 300;
+
+function filesVisible() {
+  return filesEl.offsetParent !== null && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+/** Re-renders the list. Items that changed position slide to their new place. */
 function renderFiles() {
+  const key = (p) => p.replace(/\//g, "\\").toLowerCase();
+  const before = new Map();
+  if (filesVisible()) {
+    for (const li of filesEl.children) before.set(key(li.dataset.path), li.getBoundingClientRect().top);
+  }
+
   filesEl.replaceChildren(
     ...recentFiles.map((path) => {
       const { dir, name } = splitPath(path);
@@ -960,6 +974,45 @@ function renderFiles() {
   );
   filesEmptyEl.classList.toggle("hidden", recentFiles.length > 0);
   filesKeys.refresh();
+
+  for (const li of filesEl.children) {
+    const top = before.get(key(li.dataset.path));
+    if (top === undefined) continue;
+    const dy = top - li.getBoundingClientRect().top;
+    if (Math.abs(dy) < 1) continue;
+    if (dy > 0) li.classList.add("sliding"); // moving up
+    const anim = li.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }], {
+      duration: SLIDE_MS,
+      easing: "ease-in-out",
+    });
+    anim.onfinish = anim.oncancel = () => li.classList.remove("sliding");
+  }
+}
+
+// A file opened from the files list moves to the top only once it has been open
+// for PROMOTE_DELAY_MS or is edited, so browsing the list doesn't reorder it.
+const PROMOTE_DELAY_MS = 60_000;
+let pendingPromotion = null; // { path, timer }
+
+function cancelPromotion() {
+  if (pendingPromotion) clearTimeout(pendingPromotion.timer);
+  pendingPromotion = null;
+}
+
+function deferPromotion(path) {
+  cancelPromotion();
+  const timer = setTimeout(promotePending, PROMOTE_DELAY_MS);
+  pendingPromotion = { path, timer };
+}
+
+function promotePending() {
+  if (!pendingPromotion) return;
+  const { path } = pendingPromotion;
+  cancelPromotion();
+  enqueue(async () => {
+    recentFiles = await invoke("add_recent_file", { path });
+    renderFiles();
+  });
 }
 
 function removeRecent(path) {
@@ -974,13 +1027,13 @@ filesEl.addEventListener("click", (e) => {
   if (!li) return;
   const path = li.dataset.path;
   if (e.target.closest(".file-remove")) removeRecent(path);
-  else enqueue(() => openFile(path));
+  else enqueue(() => openFile(path, { fromList: true }));
 });
 
 const filesKeys = keyboardList(filesEl, {
   onActivate: (li) =>
     enqueue(async () => {
-      await openFile(li.dataset.path);
+      await openFile(li.dataset.path, { fromList: true });
       view.focus();
     }),
   onDelete: (li) => removeRecent(li.dataset.path),
@@ -1080,8 +1133,14 @@ function loadDocument(path, text) {
   view.focus();
 }
 
-async function openFile(path) {
+/**
+ * Opens `path`. With `fromList` (clicked in the files list), the file's place in
+ * the list waits for promotePending instead of moving to the top right away.
+ */
+async function openFile(path, { fromList = false } = {}) {
   if (samePath(path, currentPath)) {
+    if (fromList) return;
+    cancelPromotion();
     recentFiles = await invoke("add_recent_file", { path });
     renderFiles();
     return;
@@ -1103,7 +1162,9 @@ async function openFile(path) {
     return;
   }
 
-  recentFiles = await invoke("add_recent_file", { path });
+  cancelPromotion();
+  if (fromList && recentFiles.some((p) => samePath(p, path))) deferPromotion(path);
+  else recentFiles = await invoke("add_recent_file", { path });
   loadDocument(path, text);
 }
 
@@ -1114,6 +1175,7 @@ async function openWithDialog() {
 
 async function newFile() {
   if (!(await saveCurrent())) return;
+  cancelPromotion();
   eol = "\n";
   loadDocument(null, "");
 }
@@ -1137,6 +1199,8 @@ document.addEventListener("keydown", (e) => {
 
 // Save before the window closes.
 appWindow.onCloseRequested(async (event) => {
+  // A file still waiting to move to the top goes there now, so it reopens next time.
+  promotePending();
   await queue;
   let saved = false;
   try {
