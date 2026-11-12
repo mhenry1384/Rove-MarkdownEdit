@@ -29,6 +29,7 @@ import { spellcheck, loadSpellchecker } from "./spellcheck.js";
 import { fileStemFromHeading, headingFromFileName } from "./file-title.js";
 import { richPaste, pasteAsPlainText } from "./paste.js";
 import { findPanel, openReplacePanel } from "./find-panel.js";
+import { currentLineHighlight } from "./current-line.js";
 
 const APP_NAME = "Rove MarkdownEdit";
 const AUTOSAVE_DELAY_MS = 1500;
@@ -85,7 +86,8 @@ const editorTheme = EditorView.theme({
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {
     backgroundColor: "var(--sel) !important",
   },
-  ".cm-activeLine": { backgroundColor: "var(--active-line)" },
+  ".cm-activeLine": { backgroundColor: "transparent" }, // see current-line.js
+  ".cm-currentLine": { backgroundColor: "var(--active-line)" },
   ".cm-gutters": { display: "none" },
   ".cm-clickable-link": { cursor: "pointer" },
   ".cm-bullet": { color: "var(--fg)", display: "inline-block", width: "0.7em", textAlign: "center" },
@@ -722,6 +724,7 @@ function makeState(text) {
       highlightSelectionMatches({ maxMatches: 0 }),
       markdown({ base: markdownLanguage, codeLanguages: languages }),
       syntaxHighlighting(mdHighlight),
+      currentLineHighlight, // after basicSetup, so it's drawn under the selection
       listDisplay,
       headerMarks,
       inlineMarks,
