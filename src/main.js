@@ -1404,6 +1404,10 @@ try {
 
 // ---------- About ----------
 
+getVersion()
+  .then((v) => (document.getElementById("app-version").textContent = `v${v}`))
+  .catch(() => {});
+
 async function showAbout() {
   const version = await getVersion();
   await message(

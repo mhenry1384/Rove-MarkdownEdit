@@ -173,6 +173,13 @@ button {
   background: var(--hover);
 }
 
+#app-version {
+  margin-left: auto;
+  align-self: center;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .list {
   list-style: none;
   margin: 0;
