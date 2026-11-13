@@ -172,18 +172,110 @@ class BulletWidget extends WidgetType {
 
 const listGapLine = Decoration.line({ class: "cm-list-gap" });
 
+// Wrapped lines of a list item get a hanging indent: they line up with the
+// item's text, not with its marker. The prefix (indentation, marker, task
+// box and the spaces after them) is measured with a canvas in the editor's
+// font, and the line gets that much extra left padding with an equal
+// negative text-indent, so only its first display line starts further left.
+
+const LINE_PADDING_LEFT = 12; // matches .cm-line in editorTheme
+const BULLET_WIDTH_EM = 0.7; // matches .cm-bullet in editorTheme
+
+let measureCtx = null;
+let measureFont = "";
+let measureFontSize = 15;
+const widthCache = new Map();
+
+function setMeasureFont(view) {
+  const style = getComputedStyle(view.contentDOM);
+  const font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+  if (font === measureFont && measureCtx) return;
+  measureCtx ??= document.createElement("canvas").getContext("2d");
+  measureCtx.font = font;
+  measureFont = font;
+  measureFontSize = parseFloat(style.fontSize) || 15;
+  widthCache.clear();
+}
+
+function textWidth(text) {
+  if (!text) return 0;
+  let w = widthCache.get(text);
+  if (w === undefined) {
+    w = measureCtx.measureText(text).width;
+    if (widthCache.size > 500) widthCache.clear();
+    widthCache.set(text, w);
+  }
+  return w;
+}
+
+/** Text as rendered, with tabs expanded to spaces from the given starting column. */
+function expandTabs(text, tabSize, col = 0) {
+  if (!text.includes("\t")) return text;
+  let out = "";
+  for (const ch of text) {
+    out += ch === "\t" ? " ".repeat(tabSize - ((col + out.length) % tabSize)) : ch;
+  }
+  return out;
+}
+
+const hangingCache = new Map();
+function hangingLine(px) {
+  const w = Math.round(px * 10) / 10;
+  let deco = hangingCache.get(w);
+  if (!deco) {
+    deco = Decoration.line({
+      class: "cm-list-hang",
+      attributes: { style: `padding-left: ${LINE_PADDING_LEFT + w}px; text-indent: -${w}px` },
+    });
+    hangingCache.set(w, deco);
+  }
+  return deco;
+}
+
+/** [pos, decoration] giving the first line of a ListItem a hanging indent, or null. */
+function hangingIndentFor(state, item) {
+  const mark = item.getChild("ListMark");
+  if (!mark) return null;
+  const line = state.doc.lineAt(mark.from);
+  const text = line.text;
+  let end = mark.to;
+  const skipSpaces = () => {
+    while (end < line.to && (text[end - line.from] === " " || text[end - line.from] === "\t")) end++;
+  };
+  skipSpaces();
+  const task = item.getChild("Task")?.getChild("TaskMarker");
+  if (task && task.from === end && task.to <= line.to) {
+    end = task.to;
+    skipSpaces();
+  }
+  if (end >= line.to) return null; // nothing after the marker to wrap
+
+  const tabSize = state.tabSize;
+  const before = expandTabs(text.slice(0, mark.from - line.from), tabSize);
+  const markText = text.slice(mark.from - line.from, mark.to - line.from);
+  const after = expandTabs(text.slice(mark.to - line.from, end - line.from), tabSize, before.length + markText.length);
+  const isBullet = item.parent?.name === "BulletList";
+  const markWidth = isBullet ? BULLET_WIDTH_EM * measureFontSize : textWidth(markText);
+  const width = textWidth(before) + markWidth + textWidth(after);
+  return width > 0 ? [line.from, hangingLine(width)] : null;
+}
+
 function buildListDecorations(view) {
   const { state } = view;
   const cursorLine = state.doc.lineAt(state.selection.main.head).number;
   const tree = syntaxTree(state);
   const marks = [];
+  setMeasureFont(view);
 
   for (const { from, to } of view.visibleRanges) {
     tree.iterate({
       from,
       to,
       enter(node) {
-        if (node.name === "ListMark" && node.node.parent?.parent?.name === "BulletList") {
+        if (node.name === "ListItem") {
+          const hang = hangingIndentFor(state, node.node);
+          if (hang) marks.push(hang);
+        } else if (node.name === "ListMark" && node.node.parent?.parent?.name === "BulletList") {
           let depth = 0;
           for (let p = node.node.parent; p; p = p.parent) if (p.name === "BulletList") depth++;
           const widget = new BulletWidget(((depth - 1) % BULLET_SHAPES) + 1);
@@ -213,11 +305,11 @@ function buildListDecorations(view) {
   const builder = new RangeSetBuilder();
   const seen = new Set(); // a list spanning two visible ranges is visited twice
   for (const [pos, deco] of marks) {
-    const isGap = deco === listGapLine;
-    const key = `${pos}${isGap ? "g" : "b"}`;
+    const isLine = !!deco.spec.class;
+    const key = `${pos}${isLine ? deco.spec.class : "b"}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    builder.add(pos, isGap ? pos : pos + 1, deco);
+    builder.add(pos, isLine ? pos : pos + 1, deco);
   }
   return builder.finish();
 }
